@@ -25,13 +25,14 @@
 
 <div id="screen-deploy" class="screen">
 
-  <!-- TOP BAR: always visible, minimal -->
+  <!-- TOP BAR: always visible -->
   <div class="deploy-topbar">
     <div class="deploy-topbar-left">
       <span class="deploy-topbar-title">DESPLIEGUE</span>
       <span class="deploy-topbar-scene" id="deploy-scene-name">—</span>
     </div>
     <div class="deploy-topbar-pts">PTS: <span id="pts-display">0</span></div>
+    <button class="btn" id="btn-start-battle">▶ INICIAR</button>
   </div>
 
   <!-- TAB BAR: mobile only -->
@@ -69,9 +70,9 @@
 
   </div>
 
-  <!-- BOTTOM BAR: always visible, start battle button -->
+  <!-- BOTTOM BAR: desktop only -->
   <div class="deploy-bottombar">
-    <button class="btn btn-lg" id="btn-start-battle">▶ INICIAR BATALLA</button>
+    <span style="font-size:9px;color:var(--khaki);letter-spacing:2px">① CATÁLOGO &nbsp;② ZONA VERDE &nbsp;③ INICIAR</span>
   </div>
 
 </div>
