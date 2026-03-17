@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PLASTIC WARFARE</title>
+<link rel="stylesheet" href="plastic_warfare.css">
+</head>
+<body>
+</head>
+<body>
+
+<div id="screen-title" class="screen active">
+  <div class="title-logo">PLASTIC<br>WARFARE</div>
+  <div class="title-sub">TACTICAL WARGAME · CASA DE CAMPAÑA</div>
+  <button class="btn btn-lg" id="btn-start-mission">INICIAR MISIÓN</button>
+  <div class="title-version">v5.0 · COBERTURA ANGULAR · ARMAS POR SEPARADO · ESCUADRONES</div>
+</div>
+
+<div id="screen-scene" class="screen">
+  <div style="font-family:Impact,sans-serif;font-size:22px;letter-spacing:5px;color:var(--text3);margin-bottom:4px">SELECCIONAR ESCENARIO</div>
+  <div style="font-size:10px;color:var(--gray3);letter-spacing:3px;margin-bottom:20px">ELIGE EL CAMPO DE BATALLA</div>
+  <div class="scene-grid" id="scene-grid"></div>
+</div>
+
+<div id="screen-deploy" class="screen">
+  <div class="deploy-header">
+    <h2>DESPLIEGUE</h2>
+    <div style="font-size:10px;color:var(--gray3)">Escenario: <span id="deploy-scene-name" style="color:var(--text2)">—</span></div>
+    <div class="points-display">PTS: <span id="pts-display">0</span></div>
+    <button class="btn" id="btn-start-battle">▶ INICIAR BATALLA</button>
+  </div>
+  <div class="deploy-body">
+    <div class="unit-roster"><div class="roster-title">CATÁLOGO DE UNIDADES</div><div id="roster-list"></div></div>
+    <div class="deploy-zone">
+      <div class="deploy-map"><canvas id="deploy-canvas"></canvas></div>
+      <div class="deploy-instructions"><span>① Selecciona unidad</span><span>② Clic en zona VERDE</span><span>③ INICIAR BATALLA</span></div>
+    </div>
+    <div class="deploy-list">
+      <div class="roster-title">FUERZAS DESPLEGADAS</div>
+      <div id="deployed-list"></div>
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:9px;color:var(--gray3)">USADOS: <span id="pts-used" style="color:var(--amber3)">0</span></div>
+    </div>
+  </div>
+</div>
+
+<div id="screen-game" class="screen">
+  <div class="left-panel">
+    <div class="turn-display">
+      <div class="turn-side ally" id="turn-label">ALIADOS</div>
+      <div class="turn-info">Ronda <span id="round-num">1</span> · <span id="ap-left">0</span> AP total</div>
+    </div>
+    <div class="unit-info-box" id="unit-info-box">
+      <div class="uib-name" id="uib-name">Sin selección</div>
+      <div class="uib-type" id="uib-type">—</div>
+      <div class="uib-health">
+        <div class="bar-label"><span>HP</span><span id="hp-text">—</span></div>
+        <div class="bar-track"><div class="bar-fill hp" id="hp-bar" style="width:100%"></div></div>
+      </div>
+      <div style="margin-top:3px">
+        <div class="bar-label"><span>AP</span><span id="ap-text">—</span></div>
+        <div class="bar-track"><div class="bar-fill ap" id="ap-bar" style="width:100%"></div></div>
+      </div>
+      <div class="uib-men" id="uib-men"></div>
+      <div class="uib-weapons" id="uib-weapons"></div>
+    </div>
+    <div class="action-btns" id="action-btns">
+      <button class="abtn" id="btn-move">MOVER</button>
+      <button class="abtn" id="btn-attack">ATACAR</button>
+      <button class="abtn" id="btn-suppress">SUPRIMIR</button>
+      <button class="abtn special" id="btn-special">ESPECIAL</button>
+      <button class="abtn" id="btn-overwatch">GUARDIA</button>
+      <button class="abtn end-turn" id="btn-endturn">FIN TURNO</button>
+    </div>
+    <div style="padding:5px 10px;font-size:8px;color:var(--gray3);border-bottom:1px solid var(--border)" id="mode-hint">Selecciona una unidad aliada</div>
+    <div class="combat-log" id="combat-log"></div>
+  </div>
+  <div class="game-map-wrap" id="game-map-wrap">
+    <div class="game-map-inner" id="game-map-inner">
+      <canvas id="game-canvas"></canvas>
+    </div>
+    <div class="map-controls">
+      <button class="map-btn" id="btn-zoom-in">+</button>
+      <div class="zoom-label" id="zoom-label">100%</div>
+      <button class="map-btn" id="btn-zoom-out">−</button>
+      <button class="map-btn" id="btn-zoom-fit" title="Fit">⊡</button>
+    </div>
+  </div>
+  <div class="right-panel">
+    <div class="panel-section">
+      <div class="ps-title">ESCENARIO</div>
+      <div style="font-size:11px;color:var(--text2)" id="r-scene-name">—</div>
+    </div>
+    <div class="panel-section">
+      <div class="ps-title">BAJAS</div>
+      <div style="display:flex;gap:10px;font-size:10px">
+        <div>🟢 <span id="ally-count" style="color:var(--green2)">0</span></div>
+        <div>🔴 <span id="enemy-count" style="color:var(--red2)">0</span></div>
+      </div>
+    </div>
+    <div class="ps-title" style="padding:6px 10px;font-size:8px;letter-spacing:3px;color:var(--gray3)">UNIDADES EN CAMPO</div>
+    <div class="units-list" id="units-list"></div>
+  </div>
+</div>
+
+
+<div id="weapon-overlay">
+  <div class="wo-title">SELECCIONAR ARMAS</div>
+  <div class="wo-target" id="wo-target-name">Objetivo: —</div>
+  <div class="weapon-select-list" id="weapon-select-list"></div>
+  <div class="wo-buttons">
+    <button class="btn" id="btn-wo-confirm">ABRIR FUEGO</button>
+    <button class="btn" id="btn-wo-cancel">CANCELAR</button>
+  </div>
+</div>
+
+<div id="dice-overlay">
+  <div style="font-size:9px;letter-spacing:3px;color:var(--gray3)" id="dice-title">TIRADA DE COMBATE</div>
+  <div class="dice-display" id="dice-display"></div>
+  <div class="dice-result-text" id="dice-result"></div>
+  <div class="dice-sub-text" id="dice-sub"></div>
+  <button class="btn" id="btn-close-dice">CONTINUAR</button>
+</div>
+
+<div id="victory-overlay">
+  <div class="victory-title" id="victory-title">VICTORIA</div>
+  <div style="font-family:Impact,sans-serif;font-size:16px;letter-spacing:4px;color:var(--gray3)" id="victory-sub">—</div>
+  <div style="display:flex;gap:12px;margin-top:16px">
+    <button class="btn btn-lg" id="btn-main-menu">MENÚ</button>
+    <button class="btn btn-lg" id="btn-new-game">NUEVA PARTIDA</button>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<script src="plastic_warfare.js"></script>
+</body>
+</html>
