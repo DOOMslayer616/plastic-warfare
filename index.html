@@ -24,24 +24,56 @@
 </div>
 
 <div id="screen-deploy" class="screen">
-  <div class="deploy-header">
-    <h2>DESPLIEGUE</h2>
-    <div style="font-size:10px;color:var(--gray3)">Escenario: <span id="deploy-scene-name" style="color:var(--text2)">—</span></div>
-    <div class="points-display">PTS: <span id="pts-display">0</span></div>
-    <button class="btn" id="btn-start-battle">▶ INICIAR BATALLA</button>
-  </div>
-  <div class="deploy-body">
-    <div class="unit-roster"><div class="roster-title">CATÁLOGO DE UNIDADES</div><div id="roster-list"></div></div>
-    <div class="deploy-zone">
-      <div class="deploy-map"><canvas id="deploy-canvas"></canvas></div>
-      <div class="deploy-instructions"><span>① Selecciona unidad</span><span>② Clic en zona VERDE</span><span>③ INICIAR BATALLA</span></div>
+
+  <!-- TOP BAR: always visible, minimal -->
+  <div class="deploy-topbar">
+    <div class="deploy-topbar-left">
+      <span class="deploy-topbar-title">DESPLIEGUE</span>
+      <span class="deploy-topbar-scene" id="deploy-scene-name">—</span>
     </div>
-    <div class="deploy-list">
+    <div class="deploy-topbar-pts">PTS: <span id="pts-display">0</span></div>
+  </div>
+
+  <!-- TAB BAR: mobile only -->
+  <div class="deploy-tabs">
+    <button class="deploy-tab active" id="tab-catalog" onclick="deployTab('catalog')">📋 CATÁLOGO</button>
+    <button class="deploy-tab" id="tab-map" onclick="deployTab('map')">🗺 MAPA</button>
+    <button class="deploy-tab" id="tab-force" onclick="deployTab('force')">⚔ FUERZAS <span id="tab-force-count" style="color:var(--amber3)"></span></button>
+  </div>
+
+  <!-- BODY: 3 panels, desktop shows all, mobile shows one at a time -->
+  <div class="deploy-body">
+
+    <!-- PANEL 1: Catalog -->
+    <div class="unit-roster deploy-panel" id="deploy-panel-catalog">
+      <div class="roster-title">CATÁLOGO DE UNIDADES</div>
+      <div id="roster-list"></div>
+    </div>
+
+    <!-- PANEL 2: Map -->
+    <div class="deploy-zone deploy-panel" id="deploy-panel-map">
+      <div class="deploy-map"><canvas id="deploy-canvas"></canvas></div>
+      <div class="deploy-instructions">
+        <span>① Selecciona unidad</span>
+        <span>② Toca zona VERDE</span>
+        <span>③ Inicia batalla</span>
+      </div>
+    </div>
+
+    <!-- PANEL 3: Deployed forces -->
+    <div class="deploy-list deploy-panel" id="deploy-panel-force">
       <div class="roster-title">FUERZAS DESPLEGADAS</div>
       <div id="deployed-list"></div>
-      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:9px;color:var(--gray3)">USADOS: <span id="pts-used" style="color:var(--amber3)">0</span></div>
+      <div class="deploy-pts-row">USADOS: <span id="pts-used" style="color:var(--amber3)">0</span></div>
     </div>
+
   </div>
+
+  <!-- BOTTOM BAR: always visible, start battle button -->
+  <div class="deploy-bottombar">
+    <button class="btn btn-lg" id="btn-start-battle">▶ INICIAR BATALLA</button>
+  </div>
+
 </div>
 
 <div id="screen-game" class="screen">

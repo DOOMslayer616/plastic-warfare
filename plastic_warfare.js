@@ -406,6 +406,7 @@ function startDeploy(roomKey){
   showScreen('deploy');
   if(!SPRITES_LOADED) loadSprites(null);
   G.scenario = buildMap(roomKey);
+  setTimeout(initDeployTabs, 50); // after DOM settles
   G.deployedUnits = [];
   G.pointsLeft = STARTING_POINTS;
   selectedRosterKey = null;
@@ -2217,6 +2218,38 @@ document.getElementById('btn-wo-cancel').addEventListener('click', function(){
   document.getElementById('weapon-overlay').classList.remove('show');
   G_weaponTarget=null;
 });
+
+// =====================================================================
+// DEPLOY TAB SYSTEM (mobile)
+// =====================================================================
+function deployTab(tab){
+  document.querySelectorAll('.deploy-tab').forEach(function(t){t.classList.remove('active');});
+  document.querySelectorAll('.deploy-panel').forEach(function(p){p.classList.remove('mob-active');});
+  var btn=document.getElementById('tab-'+tab);
+  var panel=document.getElementById('deploy-panel-'+tab);
+  if(btn) btn.classList.add('active');
+  if(panel) panel.classList.add('mob-active');
+  // Re-render deploy canvas when switching to map tab
+  if(tab==='map' && typeof renderDeploy==='function') setTimeout(renderDeploy, 30);
+}
+
+// On deploy screen open, default to catalog tab on mobile
+function initDeployTabs(){
+  // Show catalog by default on mobile, all visible on desktop
+  var isMobile=window.innerWidth<=680;
+  if(isMobile){
+    deployTab('catalog');
+  } else {
+    // Desktop: show all panels
+    document.querySelectorAll('.deploy-panel').forEach(function(p){p.classList.add('mob-active');});
+  }
+}
+
+// Update force tab count badge
+function updateForceTabCount(){
+  var badge=document.getElementById('tab-force-count');
+  if(badge) badge.textContent=G.deployedUnits&&G.deployedUnits.length?'('+G.deployedUnits.length+')':'';
+}
 
 // =====================================================================
 // MOBILE PANEL SYSTEM
