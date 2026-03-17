@@ -95,8 +95,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 .uc-weapons{font-size:8px;color:var(--green4);border-top:1px solid var(--border);padding-top:3px;line-height:1.6}
 .uc-stats{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}
 .uc-stat{font-size:8px;color:var(--khaki2);background:var(--bg);padding:1px 4px;border:1px solid var(--border);font-family:var(--font-display);font-weight:600}
-.deploy-zone{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.deploy-map{flex:1;overflow:auto;padding:10px;display:flex;align-items:flex-start;justify-content:center;background:var(--bg)}
+.deploy-zone{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;min-height:0}
+.deploy-map{flex:1;overflow:auto;padding:10px;display:flex;align-items:flex-start;justify-content:flex-start;background:var(--bg);min-height:200px}
 .deploy-instructions{padding:7px 14px;background:var(--bg2);border-top:1px solid var(--border);font-size:9px;color:var(--khaki);display:flex;gap:10px;align-items:center;flex-shrink:0;flex-wrap:wrap}
 .deploy-list{width:196px;min-width:196px;background:var(--bg2);border-left:1px solid var(--border);padding:10px;overflow-y:auto;flex-shrink:0}
 .deployed-item{border:1px solid var(--border);padding:7px 8px;margin-bottom:5px;font-size:10px;display:flex;justify-content:space-between;align-items:center;background:var(--bg3)}

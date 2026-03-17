@@ -406,7 +406,13 @@ function startDeploy(roomKey){
   showScreen('deploy');
   if(!SPRITES_LOADED) loadSprites(null);
   G.scenario = buildMap(roomKey);
-  setTimeout(initDeployTabs, 50); // after DOM settles
+  // Wait for layout to settle before rendering canvas
+  setTimeout(function(){
+    initDeployTabs();
+    renderDeployCanvas();
+    updateDeployUI();
+    renderRoster();
+  }, 80);
   G.deployedUnits = [];
   G.pointsLeft = STARTING_POINTS;
   selectedRosterKey = null;
@@ -2230,7 +2236,10 @@ function deployTab(tab){
   if(btn) btn.classList.add('active');
   if(panel) panel.classList.add('mob-active');
   // Re-render deploy canvas when switching to map tab
-  if(tab==='map') setTimeout(renderDeployCanvas, 40);
+  if(tab==='map') setTimeout(function(){
+    renderDeployCanvas();
+    updateDeployUI();
+  }, 40);
 }
 
 // On deploy screen open, default to catalog tab on mobile
