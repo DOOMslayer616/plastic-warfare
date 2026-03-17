@@ -2217,6 +2217,88 @@ document.getElementById('btn-wo-cancel').addEventListener('click', function(){
   document.getElementById('weapon-overlay').classList.remove('show');
   G_weaponTarget=null;
 });
+
+// =====================================================================
+// MOBILE PANEL SYSTEM
+// =====================================================================
+function openMobPanel(side){
+  document.getElementById('mob-panel-'+side).classList.add('open');
+  document.getElementById('mob-scrim').classList.add('show');
+}
+function closeAllMobPanels(){
+  document.querySelectorAll('.mob-panel').forEach(function(p){p.classList.remove('open');});
+  document.getElementById('mob-scrim').classList.remove('show');
+}
+
+// Sync mobile unit info with desktop state
+function syncMobileUI(){
+  // Turn badge
+  var isAlly=G.turn==='ally';
+  var mb=document.getElementById('mob-turn-label');
+  if(mb){mb.textContent=isAlly?'ALIADOS':'ENEMIGOS';mb.className='mob-turn-badge '+(isAlly?'ally':'enemy');}
+  var ma=document.getElementById('mob-ap-info');
+  if(ma){
+    var ap=G.units?G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).reduce(function(s,u){return s+u.ap;},0):0;
+    ma.textContent='AP: '+ap;
+  }
+  // Mode hint
+  var mh=document.getElementById('mob-mode-hint');
+  var dh=document.getElementById('mode-hint');
+  if(mh&&dh) mh.textContent=dh.textContent;
+  // Selected unit
+  if(G.selected){
+    var u=G.selected;
+    var mn=document.getElementById('mob-uib-name'); if(mn) mn.textContent=u.icon+' '+u.name;
+    var mt=document.getElementById('mob-uib-type'); if(mt) mt.textContent=u.tags.join(' · ').toUpperCase();
+    var hf=Math.max(0,u.hp/u.maxHp);
+    var mhb=document.getElementById('mob-hp-bar'); if(mhb){mhb.style.width=(hf*100)+'%';mhb.className='bar-fill hp'+(hf>.5?'':hf>.25?' mid':' low');}
+    var mht=document.getElementById('mob-hp-text'); if(mht) mht.textContent=u.hp+'/'+u.maxHp;
+    var mab=document.getElementById('mob-ap-bar'); if(mab) mab.style.width=((u.ap/u.maxAp)*100)+'%';
+    var mat=document.getElementById('mob-ap-text'); if(mat) mat.textContent=u.ap+'/'+u.maxAp;
+    var mm=document.getElementById('mob-uib-men'); if(mm){mm.innerHTML='';for(var i=0;i<u.menMax;i++){var d=document.createElement('div');d.className='man-dot'+(i>=u.menAlive?' dead':'');mm.appendChild(d);}}
+    var mw=document.getElementById('mob-uib-weapons'); if(mw) mw.innerHTML=document.getElementById('uib-weapons')?document.getElementById('uib-weapons').innerHTML:'';
+  }
+  // Counts
+  if(G.units){
+    var ac=G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length;
+    var ec=G.units.filter(function(u){return u.team==='enemy'&&u.hp>0;}).length;
+    var mac=document.getElementById('mob-ally-count'); if(mac) mac.textContent=ac;
+    var mec=document.getElementById('mob-enemy-count'); if(mec) mec.textContent=ec;
+    var msn=document.getElementById('mob-scene-name'); if(msn&&G.scenario) msn.textContent=G.scenario.name;
+  }
+  // Sync units list to mobile panel
+  var mul=document.getElementById('mob-units-list');
+  var dul=document.getElementById('units-list');
+  if(mul&&dul) mul.innerHTML=dul.innerHTML;
+  // Sync combat log
+  var mcl=document.getElementById('mob-combat-log');
+  var dcl=document.getElementById('combat-log');
+  if(mcl&&dcl){mcl.innerHTML=dcl.innerHTML;mcl.scrollTop=9999;}
+  // Button states (mirror desktop to mobile)
+  ['move','attack','suppress','special','overwatch','endturn'].forEach(function(id){
+    var desk=document.getElementById('btn-'+id);
+    var mob=document.getElementById('mob-btn-'+id);
+    if(desk&&mob) mob.disabled=desk.disabled;
+  });
+}
+
+document.getElementById('mob-btn-info').addEventListener('click',function(){openMobPanel('left');});
+document.getElementById('mob-btn-units').addEventListener('click',function(){openMobPanel('right');});
+document.getElementById('mob-close-left').addEventListener('click',closeAllMobPanels);
+document.getElementById('mob-close-right').addEventListener('click',closeAllMobPanels);
+document.getElementById('mob-scrim').addEventListener('click',closeAllMobPanels);
+
+// Mobile action buttons — mirror desktop
+['move','attack','suppress','special','overwatch','endturn'].forEach(function(id){
+  var mob=document.getElementById('mob-btn-'+id);
+  var desk=document.getElementById('btn-'+id);
+  if(mob&&desk) mob.addEventListener('click',function(){desk.click();closeAllMobPanels();});
+});
+
+// Hook syncMobileUI into updateGameUI
+var _origUpdateGameUI=updateGameUI;
+updateGameUI=function(){_origUpdateGameUI();syncMobileUI();};
+
 document.getElementById('btn-start-mission').addEventListener('click', initSceneSelect);
 document.getElementById('btn-start-battle').addEventListener('click', startBattle);
 document.getElementById('btn-close-dice').addEventListener('click', closeDice);

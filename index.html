@@ -18,8 +18,8 @@
 </div>
 
 <div id="screen-scene" class="screen">
-  <div style="font-family:Impact,sans-serif;font-size:22px;letter-spacing:5px;color:var(--text3);margin-bottom:4px">SELECCIONAR ESCENARIO</div>
-  <div style="font-size:10px;color:var(--gray3);letter-spacing:3px;margin-bottom:20px">ELIGE EL CAMPO DE BATALLA</div>
+  <div class="scene-title">SELECCIONAR ESCENARIO</div>
+  <div class="scene-subtitle">ELIGE EL CAMPO DE BATALLA</div>
   <div class="scene-grid" id="scene-grid"></div>
 </div>
 
@@ -45,36 +45,44 @@
 </div>
 
 <div id="screen-game" class="screen">
-  <div class="left-panel">
+
+  <!-- MOBILE TOPBAR -->
+  <div class="mob-topbar">
+    <button class="mob-btn" id="mob-btn-info">☰</button>
+    <span class="mob-turn-badge ally" id="mob-turn-label">ALIADOS</span>
+    <span class="mob-ap" id="mob-ap-info">AP: 0</span>
+    <button class="mob-btn" id="mob-btn-units">◈</button>
+  </div>
+
+  <!-- DESKTOP LEFT PANEL / MOBILE LEFT SLIDE PANEL -->
+  <div class="left-panel" id="left-panel-desktop">
     <div class="turn-display">
       <div class="turn-side ally" id="turn-label">ALIADOS</div>
-      <div class="turn-info">Ronda <span id="round-num">1</span> · <span id="ap-left">0</span> AP total</div>
+      <div class="turn-info">Ronda <span id="round-num">1</span><br><span id="ap-left">0</span> AP</div>
     </div>
-    <div class="unit-info-box" id="unit-info-box">
+    <div class="unit-info-box">
       <div class="uib-name" id="uib-name">Sin selección</div>
       <div class="uib-type" id="uib-type">—</div>
-      <div class="uib-health">
-        <div class="bar-label"><span>HP</span><span id="hp-text">—</span></div>
-        <div class="bar-track"><div class="bar-fill hp" id="hp-bar" style="width:100%"></div></div>
-      </div>
-      <div style="margin-top:3px">
-        <div class="bar-label"><span>AP</span><span id="ap-text">—</span></div>
-        <div class="bar-track"><div class="bar-fill ap" id="ap-bar" style="width:100%"></div></div>
-      </div>
+      <div class="bar-label"><span>HP</span><span id="hp-text">—</span></div>
+      <div class="bar-track"><div class="bar-fill hp" id="hp-bar" style="width:100%"></div></div>
+      <div class="bar-label" style="margin-top:3px"><span>AP</span><span id="ap-text">—</span></div>
+      <div class="bar-track"><div class="bar-fill ap" id="ap-bar" style="width:100%"></div></div>
       <div class="uib-men" id="uib-men"></div>
       <div class="uib-weapons" id="uib-weapons"></div>
     </div>
-    <div class="action-btns" id="action-btns">
+    <div class="action-btns">
       <button class="abtn" id="btn-move">MOVER</button>
       <button class="abtn" id="btn-attack">ATACAR</button>
-      <button class="abtn" id="btn-suppress">SUPRIMIR</button>
-      <button class="abtn special" id="btn-special">ESPECIAL</button>
+      <button class="abtn" id="btn-suppress">SUPRIM.</button>
+      <button class="abtn special" id="btn-special">ESPEC.</button>
       <button class="abtn" id="btn-overwatch">GUARDIA</button>
-      <button class="abtn end-turn" id="btn-endturn">FIN TURNO</button>
+      <button class="abtn end-turn" id="btn-endturn">FIN TRN</button>
     </div>
-    <div style="padding:5px 10px;font-size:8px;color:var(--gray3);border-bottom:1px solid var(--border)" id="mode-hint">Selecciona una unidad aliada</div>
+    <div class="mode-hint" id="mode-hint">Selecciona una unidad aliada</div>
     <div class="combat-log" id="combat-log"></div>
   </div>
+
+  <!-- MAP -->
   <div class="game-map-wrap" id="game-map-wrap">
     <div class="game-map-inner" id="game-map-inner">
       <canvas id="game-canvas"></canvas>
@@ -83,9 +91,11 @@
       <button class="map-btn" id="btn-zoom-in">+</button>
       <div class="zoom-label" id="zoom-label">100%</div>
       <button class="map-btn" id="btn-zoom-out">−</button>
-      <button class="map-btn" id="btn-zoom-fit" title="Fit">⊡</button>
+      <button class="map-btn" id="btn-zoom-fit">⊡</button>
     </div>
   </div>
+
+  <!-- DESKTOP RIGHT PANEL -->
   <div class="right-panel">
     <div class="panel-section">
       <div class="ps-title">ESCENARIO</div>
@@ -93,14 +103,61 @@
     </div>
     <div class="panel-section">
       <div class="ps-title">BAJAS</div>
-      <div style="display:flex;gap:10px;font-size:10px">
-        <div>🟢 <span id="ally-count" style="color:var(--green2)">0</span></div>
-        <div>🔴 <span id="enemy-count" style="color:var(--red2)">0</span></div>
+      <div style="display:flex;gap:12px;font-size:11px;font-family:var(--font-display)">
+        <div style="color:var(--green4)">🟢 <span id="ally-count">0</span></div>
+        <div style="color:var(--red4)">🔴 <span id="enemy-count">0</span></div>
       </div>
     </div>
-    <div class="ps-title" style="padding:6px 10px;font-size:8px;letter-spacing:3px;color:var(--gray3)">UNIDADES EN CAMPO</div>
+    <div class="ps-title" style="padding:6px 11px">UNIDADES EN CAMPO</div>
     <div class="units-list" id="units-list"></div>
   </div>
+
+  <!-- MOBILE SLIDE PANEL LEFT (info) -->
+  <div class="mob-panel left-side" id="mob-panel-left">
+    <div class="mob-panel-header">
+      <span class="mob-panel-title">UNIDAD</span>
+      <span class="mob-panel-close" id="mob-close-left">✕</span>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:8px">
+      <div class="uib-name" id="mob-uib-name">Sin selección</div>
+      <div class="uib-type" id="mob-uib-type" style="margin-bottom:6px">—</div>
+      <div class="bar-label"><span>HP</span><span id="mob-hp-text">—</span></div>
+      <div class="bar-track"><div class="bar-fill hp" id="mob-hp-bar" style="width:100%"></div></div>
+      <div class="bar-label" style="margin-top:4px"><span>AP</span><span id="mob-ap-text">—</span></div>
+      <div class="bar-track"><div class="bar-fill ap" id="mob-ap-bar" style="width:100%"></div></div>
+      <div class="uib-men" id="mob-uib-men" style="margin-top:6px"></div>
+      <div class="uib-weapons" id="mob-uib-weapons" style="margin-top:6px"></div>
+    </div>
+    <div style="padding:6px 8px;border-top:1px solid var(--border);flex-shrink:0;font-size:9px;color:var(--khaki2)" id="mob-mode-hint">Selecciona una unidad</div>
+    <div class="combat-log" id="mob-combat-log" style="max-height:160px;border-top:1px solid var(--border)"></div>
+  </div>
+
+  <!-- MOBILE SLIDE PANEL RIGHT (units) -->
+  <div class="mob-panel right-side" id="mob-panel-right">
+    <div class="mob-panel-header">
+      <span class="mob-panel-title">CAMPO</span>
+      <span class="mob-panel-close" id="mob-close-right">✕</span>
+    </div>
+    <div style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px;display:flex;gap:12px;font-family:var(--font-display)">
+      <span style="color:var(--green4)">🟢 <span id="mob-ally-count">0</span></span>
+      <span style="color:var(--red4)">🔴 <span id="mob-enemy-count">0</span></span>
+      <span style="color:var(--khaki);margin-left:auto;font-size:9px" id="mob-scene-name"></span>
+    </div>
+    <div class="units-list" id="mob-units-list" style="flex:1"></div>
+  </div>
+
+  <!-- MOBILE ACTION BAR -->
+  <div class="mob-action-bar">
+    <button class="abtn" id="mob-btn-move">MOVER</button>
+    <button class="abtn" id="mob-btn-attack">ATACAR</button>
+    <button class="abtn" id="mob-btn-suppress">SUPR.</button>
+    <button class="abtn special" id="mob-btn-special">ESPEC.</button>
+    <button class="abtn" id="mob-btn-overwatch">OW</button>
+    <button class="abtn end-turn" id="mob-btn-endturn">FIN</button>
+  </div>
+
+  <!-- SCRIM -->
+  <div class="mob-scrim" id="mob-scrim"></div>
 </div>
 
 
