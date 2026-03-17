@@ -454,10 +454,23 @@ function selectRosterUnit(key){
 
 function renderDeployCanvas(){
   var sc=G.scenario, cv=document.getElementById('deploy-canvas');
+  if(!cv||!sc) return;
   var dpr=window.devicePixelRatio||1;
-  cv.width=sc.cols*TILE*dpr; cv.height=sc.rows*TILE*dpr;
-  cv.style.width=(sc.cols*TILE)+'px'; cv.style.height=(sc.rows*TILE)+'px';
-  // ctx already set above
+  var isMobile=window.innerWidth<=680;
+  var naturalW=sc.cols*TILE, naturalH=sc.rows*TILE;
+  var scale=1;
+  if(isMobile){
+    var availW=window.innerWidth-16;
+    var availH=window.innerHeight-44-36-54-36;
+    scale=Math.min(availW/naturalW, availH/naturalH, 1);
+    scale=Math.max(scale, 0.25);
+  }
+  var drawW=Math.floor(naturalW*scale);
+  var drawH=Math.floor(naturalH*scale);
+  cv.width=drawW*dpr; cv.height=drawH*dpr;
+  cv.style.width=drawW+'px'; cv.style.height=drawH+'px';
+  var ctx=cv.getContext('2d');
+  ctx.scale(dpr*scale, dpr*scale);
   drawBaseMap(ctx,sc);
   ctx.fillStyle='rgba(74,124,63,.28)';
   sc.spawnAlly.forEach(function(s){ctx.fillRect(s.c*TILE,s.r*TILE,TILE,TILE);});
