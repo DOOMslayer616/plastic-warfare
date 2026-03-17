@@ -451,7 +451,7 @@ function renderDeployCanvas(){
   var dpr=window.devicePixelRatio||1;
   cv.width=sc.cols*TILE*dpr; cv.height=sc.rows*TILE*dpr;
   cv.style.width=(sc.cols*TILE)+'px'; cv.style.height=(sc.rows*TILE)+'px';
-  var ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
+  // ctx already set above
   drawBaseMap(ctx,sc);
   ctx.fillStyle='rgba(74,124,63,.28)';
   sc.spawnAlly.forEach(function(s){ctx.fillRect(s.c*TILE,s.r*TILE,TILE,TILE);});
@@ -2230,7 +2230,7 @@ function deployTab(tab){
   if(btn) btn.classList.add('active');
   if(panel) panel.classList.add('mob-active');
   // Re-render deploy canvas when switching to map tab
-  if(tab==='map' && typeof renderDeploy==='function') setTimeout(renderDeploy, 30);
+  if(tab==='map') setTimeout(renderDeployCanvas, 40);
 }
 
 // On deploy screen open, default to catalog tab on mobile
