@@ -1,6 +1,6 @@
 /* PLASTIC WARFARE v5.0 — Game Logic */
 
-var TILE = 80;
+var TILE = 100;
 var STARTING_POINTS = 1200;
 
 // =====================================================================
@@ -460,10 +460,11 @@ function renderDeployCanvas(){
   var naturalW=sc.cols*TILE, naturalH=sc.rows*TILE;
   var scale=1;
   if(isMobile){
-    var availW=window.innerWidth-16;
-    var availH=window.innerHeight-44-36-54-36;
-    scale=Math.min(availW/naturalW, availH/naturalH, 1);
-    scale=Math.max(scale, 0.25);
+    // On mobile: scale so map width fills screen, allow vertical scroll
+    var availW=window.innerWidth-8;
+    scale=Math.min(availW/naturalW, 1); // fit width, don't upscale
+    scale=Math.max(scale, 0.3);
+    // Don't constrain height — deploy-map is scrollable
   }
   var drawW=Math.floor(naturalW*scale);
   var drawH=Math.floor(naturalH*scale);
