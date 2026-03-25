@@ -1,7 +1,114 @@
 /* PLASTIC WARFARE v5.0 — Game Logic */
 
-var TILE = 100;
+var TILE = 50;          // hex radius in pixels (center to vertex)
 var STARTING_POINTS = 1200;
+
+// =====================================================================
+// HEX GRID SYSTEM (flat-top offset coords, odd-r)
+// TILE = hex radius (center to vertex)
+// =====================================================================
+var HEX_W = TILE * 2;          // hex width
+var HEX_H = TILE * Math.sqrt(3); // hex height
+var HEX_HORIZ = TILE * 1.5;    // horizontal step
+var HEX_VERT  = HEX_H;         // vertical step
+
+// Convert hex grid coords (c,r) to canvas pixel center
+function hexToPixel(c, r){
+  var x = HEX_HORIZ * c + TILE;
+  var y = HEX_H * r + (c%2===1 ? HEX_H/2 : 0) + HEX_H/2;
+  return {x:x, y:y};
+}
+
+// Convert canvas pixel to nearest hex coords
+function pixelToHex(px, py){
+  // Approximate, then refine by checking neighbors
+  var c = Math.round((px - TILE) / HEX_HORIZ);
+  var r = Math.round((py - (c%2===1 ? HEX_H/2 : 0) - HEX_H/2) / HEX_H);
+  return closestHex(px, py, c, r);
+}
+
+function hexDist(c1,r1,c2,r2){
+  // Convert offset to cube coords, then use cube distance
+  var cube1 = offsetToCube(c1,r1);
+  var cube2 = offsetToCube(c2,r2);
+  return Math.max(Math.abs(cube1.x-cube2.x),Math.abs(cube1.y-cube2.y),Math.abs(cube1.z-cube2.z));
+}
+
+function offsetToCube(c,r){
+  var x = c;
+  var z = r - (c - (c&1)) / 2;
+  var y = -x - z;
+  return {x:x, y:y, z:z};
+}
+
+function cubeToOffset(x,y,z){
+  var c = x;
+  var r = z + (x - (x&1)) / 2;
+  return {c:Math.round(c), r:Math.round(r)};
+}
+
+// Get 6 hex neighbors in offset coords
+function hexNeighbors(c, r){
+  var dirs;
+  if(c%2===0){
+    dirs=[[1,0],[-1,0],[0,-1],[0,1],[1,-1],[-1,-1]];
+  } else {
+    dirs=[[1,0],[-1,0],[0,-1],[0,1],[1,1],[-1,1]];
+  }
+  var result=[];
+  dirs.forEach(function(d){
+    var nc=c+d[0], nr=r+d[1];
+    if(G.scenario&&nc>=0&&nr>=0&&nc<G.scenario.cols&&nr<G.scenario.rows)
+      result.push({c:nc,r:nr});
+  });
+  return result;
+}
+
+// Get all hexes within 'range' steps
+function hexesInRange(c, r, range){
+  var results=[], visited=new Set();
+  var queue=[{c:c,r:r,steps:0}];
+  visited.add(c+','+r);
+  while(queue.length){
+    var cur=queue.shift();
+    if(cur.steps>0) results.push({c:cur.c,r:cur.r});
+    if(cur.steps>=range) continue;
+    hexNeighbors(cur.c,cur.r).forEach(function(n){
+      var key=n.c+','+n.r;
+      if(!visited.has(key)){visited.add(key);queue.push({c:n.c,r:n.r,steps:cur.steps+1});}
+    });
+  }
+  return results;
+}
+
+function closestHex(px, py, c0, r0){
+  var best={c:c0,r:r0}, bestDist=Infinity;
+  [[0,0],[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]].forEach(function(d){
+    var c=c0+d[0], r=r0+d[1];
+    var p=hexToPixel(c,r);
+    var dist=Math.hypot(px-p.x,py-p.y);
+    if(dist<bestDist){bestDist=dist;best={c:c,r:r};}
+  });
+  return best;
+}
+
+// Draw a single hexagon centered at (cx,cy) with radius r
+function drawHexPath(ctx, cx, cy, r){
+  ctx.beginPath();
+  for(var i=0;i<6;i++){
+    var angle = Math.PI/180 * (60*i); // flat-top: start at 0°
+    var x = cx + r * Math.cos(angle);
+    var y = cy + r * Math.sin(angle);
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.closePath();
+}
+
+// Canvas total size
+function hexGridWidth(cols){ return HEX_HORIZ * cols + TILE * 0.5; }
+function hexGridHeight(rows){ return HEX_H * rows + HEX_H * 0.5; }
+
+
 
 // =====================================================================
 // WEAPON DEFINITIONS
@@ -29,6 +136,7 @@ var WEAPONS = {
 var UNIT_DEFS = {
   riflemen:{
     name:'Fusileros', abbr:'FUSI', cost:120,
+    grade:'average',
     maxMen:6, defaultMen:6, icon:'●',
     color:'#4a7c3f', ecolor:'#7c2020',
     hp:2, ap:3, move:4,
@@ -41,6 +149,7 @@ var UNIT_DEFS = {
   },
   medics:{
     name:'Escuadrón Médico', abbr:'MÉDI', cost:90,
+    grade:'average',
     maxMen:4, defaultMen:4, icon:'✚',
     color:'#2a8a5a', ecolor:'#8a2a2a',
     hp:2, ap:3, move:4,
@@ -55,6 +164,8 @@ var UNIT_DEFS = {
   },
   antitank:{
     name:'Eq. Antitanque', abbr:'AT', cost:150,
+    grade:'good',
+    grade:'average',
     maxMen:3, defaultMen:3, icon:'★',
     color:'#5a6a2a', ecolor:'#6a2a10',
     hp:2, ap:2, move:3,
@@ -68,6 +179,7 @@ var UNIT_DEFS = {
   },
   sniper:{
     name:'Francotirador', abbr:'FRAN', cost:130,
+    grade:'good',
     maxMen:2, defaultMen:2, icon:'▲',
     color:'#3a5a2a', ecolor:'#5a1a1a',
     hp:2, ap:2, move:3,
@@ -94,6 +206,7 @@ var UNIT_DEFS = {
   },
   apc:{
     name:'APC', abbr:'APC', cost:200,
+    grade:'average',
     maxMen:1, defaultMen:1, icon:'◉',
     color:'#5a6a4a', ecolor:'#6a4a2a',
     hp:6, ap:2, move:4,
@@ -108,6 +221,7 @@ var UNIT_DEFS = {
   },
   jeep:{
     name:'Jeep de Ataque', abbr:'JEEP', cost:160,
+    grade:'average',
     maxMen:1, defaultMen:1, icon:'◇',
     color:'#7a7a3a', ecolor:'#7a5a1a',
     hp:4, ap:3, move:5,
@@ -120,6 +234,7 @@ var UNIT_DEFS = {
   },
   attack_heli:{
     name:'Heli. Ataque', abbr:'HELI-A', cost:380,
+    grade:'good',
     maxMen:1, defaultMen:1, icon:'✦',
     color:'#3a5a7a', ecolor:'#5a2a2a',
     hp:5, ap:2, move:6,
@@ -134,6 +249,7 @@ var UNIT_DEFS = {
   },
   transport_heli:{
     name:'Heli. Transporte', abbr:'HELI-T', cost:240,
+    grade:'average',
     maxMen:1, defaultMen:1, icon:'✧',
     color:'#3a4a6a', ecolor:'#4a2a4a',
     hp:4, ap:2, move:7,
@@ -466,17 +582,30 @@ function renderDeployCanvas(){
     scale=Math.max(scale, 0.3);
     // Don't constrain height — deploy-map is scrollable
   }
-  var drawW=Math.floor(naturalW*scale);
-  var drawH=Math.floor(naturalH*scale);
+  var naturalW=hexGridWidth(sc.cols), naturalH=hexGridHeight(sc.rows);
+  var scale2=1;
+  if(isMobile){
+    var availW2=window.innerWidth-8;
+    scale2=Math.min(availW2/naturalW,1);
+    scale2=Math.max(scale2,0.3);
+  }
+  var drawW=Math.floor(naturalW*scale2);
+  var drawH=Math.floor(naturalH*scale2);
   cv.width=drawW*dpr; cv.height=drawH*dpr;
   cv.style.width=drawW+'px'; cv.style.height=drawH+'px';
   var ctx=cv.getContext('2d');
-  ctx.scale(dpr*scale, dpr*scale);
+  ctx.scale(dpr*scale2, dpr*scale2);
   drawBaseMap(ctx,sc);
-  ctx.fillStyle='rgba(74,124,63,.28)';
-  sc.spawnAlly.forEach(function(s){ctx.fillRect(s.c*TILE,s.r*TILE,TILE,TILE);});
-  ctx.fillStyle='rgba(124,32,32,.18)';
-  sc.spawnEnemy.forEach(function(s){ctx.fillRect(s.c*TILE,s.r*TILE,TILE,TILE);});
+  ctx.fillStyle='rgba(74,180,74,.35)';
+  sc.spawnAlly.forEach(function(s){
+    var p=hexToPixel(s.c,s.r);
+    drawHexPath(ctx,p.x,p.y,TILE-2); ctx.fill();
+  });
+  ctx.fillStyle='rgba(180,50,50,.25)';
+  sc.spawnEnemy.forEach(function(s){
+    var p=hexToPixel(s.c,s.r);
+    drawHexPath(ctx,p.x,p.y,TILE-2); ctx.fill();
+  });
   G.deployedUnits.forEach(function(u){drawUnit(ctx,u,false);});
 }
 
@@ -529,6 +658,7 @@ function createUnit(id, key, team, c, r){
     healRange: def.healRange||0,
     toughness: def.toughness||0,
     openTop: def.openTop||false,
+    grade: def.grade||'average',
     degraded: false,
     suppressMarkers: 0,
     overwatch: false,
@@ -675,21 +805,31 @@ function updateFog(){
 
 // hasLOS with optional attacker unit (to know if vehicle or infantry)
 function hasLOS(c1,r1,c2,r2,attackerUnit){
-  var dx=c2-c1,dy=r2-r1,steps=Math.max(Math.abs(dx),Math.abs(dy));
-  if(!steps)return true;
+  if(c1===c2&&r1===r2)return true;
   var sc=G.scenario;
-  var isVehicle=attackerUnit&&attackerUnit.tags&&attackerUnit.tags.indexOf('vehicle')>=0;
   var isHeli=attackerUnit&&attackerUnit.tags&&attackerUnit.tags.indexOf('air')>=0;
-  for(var i=1;i<steps;i++){
-    var ic=Math.round(c1+dx*i/steps),ir=Math.round(r1+dy*i/steps);
+  // Hex line of sight using cube coordinate lerp
+  var cube1=offsetToCube(c1,r1), cube2=offsetToCube(c2,r2);
+  var dist=Math.max(Math.abs(cube1.x-cube2.x),Math.abs(cube1.y-cube2.y),Math.abs(cube1.z-cube2.z));
+  for(var i=1;i<dist;i++){
+    var t=i/dist;
+    var cx=cube1.x+t*(cube2.x-cube1.x);
+    var cy_=cube1.y+t*(cube2.y-cube1.y);
+    var cz=cube1.z+t*(cube2.z-cube1.z);
+    // Cube round
+    var rx=Math.round(cx),ry=Math.round(cy_),rz=Math.round(cz);
+    var xd=Math.abs(rx-cx),yd=Math.abs(ry-cy_),zd=Math.abs(rz-cz);
+    if(xd>yd&&xd>zd) rx=-ry-rz;
+    else if(yd>zd) ry=-rx-rz;
+    else rz=-rx-ry;
+    var off=cubeToOffset(rx,ry,rz);
+    var ic=off.c, ir=off.r;
     if(ic<0||ir<0||ic>=sc.cols||ir>=sc.rows)return false;
-    var t=sc.map[ir][ic];
-    if(t.type==='wall')return false;
-    if(!t.obs)continue;
-    var ot=t.obs.type;
-    // Helicopters fly over TALL obstacles — only walls block them
+    var tile=sc.map[ir][ic];
+    if(tile.type==='wall')return false;
+    if(!tile.obs)continue;
+    var ot=tile.obs.type;
     if(isHeli)continue;
-    // Tall always blocks infantry and ground vehicles
     if(isTallObstacle(ot))return false;
     // Medium blocks infantry LOS (not vehicles — vehicles look over medium cover)
     if(isMedObstacle(ot)&&!isVehicle)return false;
@@ -786,6 +926,77 @@ function getCoverInfo(ac,ar,dc,dr,isDefenderVehicle,isDefenderHeli){
   return bestCover;
 }
 
+
+
+// =====================================================================
+// CARD ACTIVATION SYSTEM (Red Flags & Iron Crosses inspired)
+// =====================================================================
+var CARD_VALUES = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+var CARD_SUITS  = ['♥','♣','♦','♠'];
+
+function buildDeck(){
+  var deck=[];
+  CARD_VALUES.forEach(function(v,vi){
+    CARD_SUITS.forEach(function(s,si){
+      deck.push({value:v,suit:s,numVal:vi,suitVal:si,label:v+s,sortKey:vi*4+si});
+    });
+  });
+  return deck;
+}
+function shuffleDeck(deck){
+  for(var i=deck.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=deck[i];deck[i]=deck[j];deck[j]=t;}
+  return deck;
+}
+function dealCards(){
+  var deck=shuffleDeck(buildDeck());
+  var living=G.units.filter(function(u){return u.hp>0;});
+  living.forEach(function(u){u.activationCard=deck.pop();u.activated=false;});
+  G.activationQueue=living.slice().sort(function(a,b){
+    if(!a.activationCard)return 1;
+    if(!b.activationCard)return -1;
+    return a.activationCard.sortKey-b.activationCard.sortKey;
+  });
+  G.activationDeck=deck;
+  addLog('=== RONDA '+G.round+' — CARTAS REPARTIDAS ===','system');
+  G.activationQueue.forEach(function(u){
+    if(u.activationCard) addLog('  '+u.name+' ('+u.team+'): '+u.activationCard.label,'system');
+  });
+}
+function drawFromDeck(){
+  if(!G.activationDeck||!G.activationDeck.length) G.activationDeck=shuffleDeck(buildDeck());
+  return G.activationDeck.pop();
+}
+function isRedCard(card){return card&&(card.suit==='♥'||card.suit==='♦');}
+function isBlackCard(card){return card&&(card.suit==='♣'||card.suit==='♠');}
+function getNextActivation(){
+  if(!G.activationQueue||!G.activationQueue.length)return null;
+  for(var i=0;i<G.activationQueue.length;i++){
+    var u=G.activationQueue[i];
+    if(u.hp>0&&!u.activated)return u;
+  }
+  return null;
+}
+function allActivated(){
+  return G.units.filter(function(u){return u.hp>0;}).every(function(u){return u.activated;});
+}
+
+// =====================================================================
+// TROOP QUALITY SYSTEM
+// =====================================================================
+var GRADE_DEFS={
+  good:      {label:'Elite',   woundMod:+1, cohesionSuits:['♥','♣','♦','♠']},
+  average:   {label:'Regular', woundMod:0,  cohesionSuits:['♣','♦','♠']},
+  poor:      {label:'Milicia', woundMod:-1, cohesionSuits:['♦','♠']},
+  very_poor: {label:'Recluta',woundMod:-2, cohesionSuits:['♠']},
+};
+function cohesionCheck(unit){
+  var card=drawFromDeck();
+  var grade=unit.grade||'average';
+  var def=GRADE_DEFS[grade];
+  var recovered=def.cohesionSuits.indexOf(card.suit)>=0;
+  addLog((recovered?'✓ ':'✗ ')+unit.name+' cohesión ('+card.label+'): '+(recovered?'RECUPERADO':'FALLA'),'system');
+  return recovered;
+}
 
 // =====================================================================
 // SPRITE SYSTEM
@@ -892,27 +1103,67 @@ function getSpriteForUnit(unit){
 // DRAWING
 // =====================================================================
 function drawBaseMap(ctx,sc){
-  ctx.clearRect(0,0,sc.cols*TILE,sc.rows*TILE);
+  var gw=hexGridWidth(sc.cols), gh=hexGridHeight(sc.rows);
+  ctx.clearRect(0,0,gw,gh);
+
+  // Draw hex cells
   for(var r=0;r<sc.rows;r++) for(var c=0;c<sc.cols;c++){
     var t=sc.map[r][c];
-    if(t.type==='wall'){ctx.fillStyle='#1a1c16';ctx.fillRect(c*TILE,r*TILE,TILE,TILE);}
-    else{ctx.fillStyle=FLOOR_COLORS[t.floor]||'#7a7a6a';ctx.fillRect(c*TILE,r*TILE,TILE,TILE);ctx.strokeStyle='rgba(0,0,0,.07)';ctx.lineWidth=0.5;ctx.strokeRect(c*TILE+.5,r*TILE+.5,TILE-1,TILE-1);}
+    var p=hexToPixel(c,r);
+
+    if(t.type==='wall'){
+      ctx.fillStyle='#1a1c16';
+    } else {
+      ctx.fillStyle=FLOOR_COLORS[t.floor]||'#7a7a6a';
+    }
+    drawHexPath(ctx,p.x,p.y,TILE-1);
+    ctx.fill();
+
+    // Hex border
+    if(t.type!=='wall'){
+      ctx.strokeStyle='rgba(0,0,0,.12)';
+      ctx.lineWidth=0.7;
+      drawHexPath(ctx,p.x,p.y,TILE-1);
+      ctx.stroke();
+    }
   }
+
+  // Draw obstacles
   sc.obstacles.forEach(function(o){
-    var x=o.c*TILE,y=o.r*TILE,ow=o.w*TILE,oh=o.h*TILE;
-    ctx.fillStyle=OBS_COLORS[o.type]||'#6a6a5a';
-    ctx.beginPath();ctx.roundRect(x+3,y+3,ow-6,oh-6,4);ctx.fill();
-    if(o.cover==='heavy'){ctx.strokeStyle='rgba(255,255,255,.18)';ctx.lineWidth=1.5;ctx.stroke();}
-    ctx.fillStyle='rgba(0,0,0,.6)';ctx.font='bold 8px monospace';ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillText(o.label||o.type,x+ow/2,y+oh/2);
+    // Draw obstacle as filled hex(es) with label
+    for(var dr=0;dr<o.h;dr++) for(var dc=0;dc<o.w;dc++){
+      var oc=o.c+dc, or_=o.r+dr;
+      if(oc<sc.cols&&or_<sc.rows&&sc.map[or_][oc].type!=='wall'){
+        var p=hexToPixel(oc,or_);
+        ctx.fillStyle=OBS_COLORS[o.type]||'#6a6a5a';
+        drawHexPath(ctx,p.x,p.y,TILE-3);
+        ctx.fill();
+        if(o.cover==='heavy'||o.cover==='medium'){
+          ctx.strokeStyle=o.cover==='heavy'?'rgba(255,255,255,.22)':'rgba(255,255,160,.18)';
+          ctx.lineWidth=1.5;
+          drawHexPath(ctx,p.x,p.y,TILE-3);
+          ctx.stroke();
+        }
+      }
+    }
+    // Label on center hex
+    var p=hexToPixel(o.c,o.r);
+    ctx.fillStyle='rgba(0,0,0,.7)';
+    ctx.font='bold '+(TILE<40?6:8)+'px monospace';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(o.label||o.type,p.x,p.y);
     var isTall=TALL_OBS.indexOf(o.type)>=0;
-    ctx.fillStyle=o.cover==='heavy'?'#aa8030':o.cover==='light'?'#7a9050':'transparent';
-    if(o.cover!=='none'){ctx.font='6px monospace';ctx.fillText(isTall?(o.cover==='heavy'?'▲PES':'▲LIG'):(o.cover==='heavy'?'●PES':'●LIG'),x+ow/2,y+oh/2+11);}
+    if(o.cover!=='none'){
+      ctx.fillStyle=o.cover==='heavy'?'#cc9030':o.cover==='medium'?'#aaaa40':'#70a050';
+      ctx.font=(TILE<40?5:7)+'px monospace';
+      ctx.fillText(isTall?'▲':'●',p.x,p.y+(TILE<40?7:10));
+    }
   });
 }
 
 function drawUnit(ctx,u,exhausted){
-  var x=u.c*TILE, y=u.r*TILE;
+  var p=hexToPixel(u.c,u.r);
+  var x=p.x-TILE, y=p.y-TILE;   // top-left of bounding box for sprite
   var isVehicle=u.tags.indexOf('vehicle')>=0;
 
   // ── Try sprite first (infantry only) ──────────────────────────────
@@ -1069,8 +1320,11 @@ function renderGame(){
     }
   });
   if(G.selected){
-    ctx.fillStyle='rgba(200,160,20,.18)';ctx.fillRect(G.selected.c*TILE,G.selected.r*TILE,TILE,TILE);
-    ctx.strokeStyle='rgba(200,160,20,.7)';ctx.lineWidth=2;ctx.strokeRect(G.selected.c*TILE+1,G.selected.r*TILE+1,TILE-2,TILE-2);
+    var selP=hexToPixel(G.selected.c,G.selected.r);
+    ctx.fillStyle='rgba(200,160,20,.18)';
+    drawHexPath(ctx,selP.x,selP.y,TILE-1);ctx.fill();
+    ctx.strokeStyle='rgba(220,180,30,.85)';ctx.lineWidth=2.5;
+    drawHexPath(ctx,selP.x,selP.y,TILE-1);ctx.stroke();
   }
   // Draw ground units first (under fog)
   G.units.forEach(function(u){
@@ -1080,7 +1334,11 @@ function renderGame(){
   });
   // Fog layer
   for(var r=0;r<sc.rows;r++) for(var c=0;c<sc.cols;c++){
-    if(!G.visibleCells.has(c+','+r)){ctx.fillStyle='rgba(0,0,0,.75)';ctx.fillRect(c*TILE,r*TILE,TILE,TILE);}
+    if(!G.visibleCells.has(c+','+r)){
+      var fp=hexToPixel(c,r);
+      ctx.fillStyle='rgba(0,0,0,.75)';
+      drawHexPath(ctx,fp.x,fp.y,TILE); ctx.fill();
+    }
   }
   // Draw flying units ON TOP of fog (helicopters are always visible when in range)
   G.units.forEach(function(u){
@@ -1119,31 +1377,22 @@ function getMoves(unit){
     var cur=queue.shift();
     if(cur.steps>0) moves.push({c:cur.c,r:cur.r});
     if(cur.steps>=unit.move) continue;
-    [[0,1],[0,-1],[1,0],[-1,0]].forEach(function(d){
-      var nc=cur.c+d[0],nr=cur.r+d[1],key=nc+','+nr;
+    // Use hex neighbors (6 directions) instead of 4
+    hexNeighbors(cur.c,cur.r).forEach(function(n){
+      var key=n.c+','+n.r;
       if(visited.has(key)) return;
-      if(nc<0||nr<0||nc>=sc.cols||nr>=sc.rows) return;
-      if(sc.map[nr][nc].type==='wall') return;
+      if(sc.map[n.r][n.c].type==='wall') return;
       if(!isFlying){
-        // Ground units: blocked by tall obstacles
-        if(sc.map[nr][nc].obs && isTallObstacle(sc.map[nr][nc].obs.type)) return;
-        // Ground units: blocked by any unit in the tile
-        if(G.units.find(function(u){return u.c===nc&&u.r===nr&&u.hp>0&&u.id!==unit.id;})) return;
-      } else {
-        // Flying units: can pass THROUGH any unit (they fly over)
-        // but CANNOT land (end movement) on a tile occupied by another unit
-        // This is handled by filtering final move tiles below
+        if(sc.map[n.r][n.c].obs && isTallObstacle(sc.map[n.r][n.c].obs.type)) return;
+        if(G.units.find(function(u){return u.c===n.c&&u.r===n.r&&u.hp>0&&u.id!==unit.id;})) return;
       }
       visited.add(key);
-      queue.push({c:nc,r:nr,steps:cur.steps+1});
+      queue.push({c:n.c,r:n.r,steps:cur.steps+1});
     });
   }
-  // Flying: remove tiles that are already occupied (can't land there)
   if(isFlying){
     moves=moves.filter(function(t){
-      return !G.units.find(function(u){
-        return u.c===t.c&&u.r===t.r&&u.hp>0&&u.id!==unit.id;
-      });
+      return !G.units.find(function(u){return u.c===t.c&&u.r===t.r&&u.hp>0&&u.id!==unit.id;});
     });
   }
   return moves;
@@ -1166,7 +1415,7 @@ function getAttackTiles(unit){
 }
 
 function canAttackTarget(attacker, target){
-  var dist=Math.abs(attacker.c-target.c)+Math.abs(attacker.r-target.r);
+  var dist=hexDist(attacker.c,attacker.r,target.c,target.r);
   var maxRange=getAttackRange(attacker);
   return dist<=maxRange && hasLOS(attacker.c,attacker.r,target.c,target.r,attacker);
 }
@@ -1196,7 +1445,7 @@ function resolveWeapon(attacker, target, wg){
     attacker.cannonFired=true;
   }
 
-  var dist=Math.abs(attacker.c-target.c)+Math.abs(attacker.r-target.r);
+  var dist=hexDist(attacker.c,attacker.r,target.c,target.r);
   var numDice=w.atk*wg.count;
   var mods=[];
 
@@ -1207,6 +1456,10 @@ function resolveWeapon(attacker, target, wg){
   // Cover light: -1 attack die
   if(!isDefVehicle&&coverInfo.type==='light'){numDice=Math.max(1,numDice-1);mods.push({txt:'Cobertura ligera: -1 dado ataque',cls:'mod-bad'});}
   // Suppressed attacker: -1 die
+  if(attacker.moved&&!attacker.justDeployed){
+    numDice=Math.max(1,Math.floor(numDice/2));
+    mods.push({txt:'Se movió: ÷2 dados',cls:'mod-bad'});
+  }
   if(attacker.suppressed){
     var sLevel=attacker.suppressMarkers||1;
     numDice=Math.max(1,numDice-sLevel);
@@ -1226,6 +1479,9 @@ function resolveWeapon(attacker, target, wg){
   if(w.abilities.indexOf('sustained_hits')>=0){var sh=atkRolls.filter(function(d){return d===6;}).length;if(sh>0){hits+=sh;mods.push({txt:'Sustained: +'+sh+' hit extra',cls:'mod-good'});}}
 
   // Wound threshold
+  // Grade modifier on wound threshold
+  var gradeWoundMod = 0;
+  if(attacker.grade&&GRADE_DEFS[attacker.grade]) gradeWoundMod=GRADE_DEFS[attacker.grade].woundMod;
   // Strength vs Toughness wound table (Bolt Action / 40k hybrid)
   var wStr = w.ap>=4 ? 8 : w.ap>=3 ? 6 : w.ap>=2 ? 4 : w.ap>=1 ? 3 : 2;
   var defTough = (isDefVehicle && target.toughness) ? target.toughness : 0;
@@ -1239,6 +1495,8 @@ function resolveWeapon(attacker, target, wg){
     else if(wStr*2>defTough)  wndThresh=5;
     else                      wndThresh=6;
   } else { wndThresh=4; }
+  // Apply grade modifier (Good→easier to wound, Poor→harder)
+  wndThresh=Math.max(2,Math.min(6,wndThresh-gradeWoundMod));
   // Open-top vehicles: any weapon wounds on 4+, crits destroy instantly
   var openTopKill=false;
   if(target.openTop && !isDefHeavy && wStr>=2){
@@ -1278,7 +1536,7 @@ function resolveSelectedWeapons(attacker, target, selectedWgIndices){
   selectedWgIndices.forEach(function(gi){
     var wg=attacker.weaponGroups[gi];
     if(!wg)return;
-    var dist=Math.abs(attacker.c-target.c)+Math.abs(attacker.r-target.r);
+    var dist=hexDist(attacker.c,attacker.r,target.c,target.r);
     if(dist>WEAPONS[wg.weapon].range)return;
     results.push(resolveWeapon(attacker,target,wg));
   });
@@ -1291,7 +1549,7 @@ function resolveSuppression(attacker, target){
   var suppWg=attacker.weaponGroups.find(function(wg){return WEAPONS[wg.weapon].abilities.indexOf('suppression')>=0;});
   if(!suppWg)return false;
   var w=WEAPONS[suppWg.weapon];
-  var dist=Math.abs(attacker.c-target.c)+Math.abs(attacker.r-target.r);
+  var dist=hexDist(attacker.c,attacker.r,target.c,target.r);
   if(dist>w.range||!hasLOS(attacker.c,attacker.r,target.c,target.r))return false;
   var rolls=rollDice(w.atk*suppWg.count);
   var hits=rolls.filter(function(d){return d>=w.bs;}).length;
@@ -1588,7 +1846,7 @@ function openWeaponSelect(attacker, target){
   var isDefHeavy   = target.tags.indexOf('heavy')>=0;
   attacker.weaponGroups.forEach(function(wg, gi){
     var w    = WEAPONS[wg.weapon];
-    var dist = Math.abs(attacker.c-target.c)+Math.abs(attacker.r-target.r);
+    var dist = hexDist(attacker.c,attacker.r,target.c,target.r);
     var outOfRange  = dist > w.range;
     var cantWound   = isDefHeavy && attacker.tags.indexOf('infantry')>=0 && w.ap<3 && w.abilities.indexOf('anti_vehicle')<0;
     var noMissiles  = wg.weapon==='missile_launcher' && attacker.missilesLeft<=0;
@@ -1703,12 +1961,14 @@ function endTurn(){
 
 function tickSuppression(team){
   G.units.filter(function(u){return u.team===team&&u.suppressed;}).forEach(function(u){
-    u.suppressMarkers=Math.max(0,(u.suppressMarkers||1)-1);
-    if(u.suppressMarkers<=0){
-      u.suppressed=false;u.suppressTurns=0;
-      addLog('✓ '+u.name+' recuperado de supresión','system');
+    // RFIC cohesion check — draw a card to see if unit recovers
+    var recovered=cohesionCheck(u);
+    if(recovered){
+      u.suppressMarkers=0;u.suppressed=false;u.suppressTurns=0;
     } else {
-      addLog('⚡ '+u.name+' aún suprimido ('+u.suppressMarkers+' marcadores)','suppress');
+      u.suppressMarkers=Math.max(0,(u.suppressMarkers||1)-1);
+      if(u.suppressMarkers<=0){u.suppressed=false;u.suppressTurns=0;}
+      else addLog('⚡ '+u.name+' sigue suprimido ('+u.suppressMarkers+' marc.)','suppress');
     }
   });
 }
@@ -1739,7 +1999,8 @@ function runAI(){
     G.units.forEach(function(u){if(u.team==='ally'&&u.hp>0){u.moved=false;u.acted=false;u.overwatch=false;u.ap=u.maxAp;u.cannonFired=false;}});
     tickSuppression('enemy');
     tickDeployTimers('ally');
-    addLog('=== RONDA '+G.round+' — TURNO ALIADOS ===','system');
+    dealCards();
+  addLog('=== RONDA '+G.round+' — TURNO ALIADOS ===','system');
     updateFog();updateGameUI();renderGame();
   }, delay+200);
 }
@@ -1783,9 +2044,9 @@ function aiPickMove(e, allies, moves){
     });
     if(covered.length){
       // Pick covered tile furthest from nearest enemy
-      var nearest=allies.slice().sort(function(a,b){return(Math.abs(a.c-e.c)+Math.abs(a.r-e.r))-(Math.abs(b.c-e.c)+Math.abs(b.r-e.r));})[0];
+      var nearest=allies.slice().sort(function(a,b){return(hexDist(a.c,a.r,e.c,e.r))-(hexDist(b.c,b.r,e.c,e.r));})[0];
       return covered.slice().sort(function(a,b){
-        return(Math.abs(b.c-nearest.c)+Math.abs(b.r-nearest.r))-(Math.abs(a.c-nearest.c)+Math.abs(a.r-nearest.r));
+        return(hexDist(b.c,b.r,nearest.c,nearest.r))-(hexDist(a.c,a.r,nearest.c,nearest.r));
       })[0];
     }
   }
@@ -1794,7 +2055,7 @@ function aiPickMove(e, allies, moves){
     var bestFlank=null, bestCount=-1;
     moves.forEach(function(t){
       var count=allies.filter(function(a){
-        return Math.abs(a.c-t.c)+Math.abs(a.r-t.r)<=WEAPONS['heavy_mg'].range;
+        return hexDist(a.c,a.r,t.c,t.r)<=WEAPONS['heavy_mg'].range;
       }).length;
       if(count>bestCount){bestCount=count;bestFlank=t;}
     });
@@ -1806,14 +2067,14 @@ function aiPickMove(e, allies, moves){
     if(wounded.length){
       var mostWounded=wounded.slice().sort(function(a,b){return(a.hp/a.maxHp)-(b.hp/b.maxHp);})[0];
       return moves.slice().sort(function(a,b){
-        return(Math.abs(a.c-mostWounded.c)+Math.abs(a.r-mostWounded.r))-(Math.abs(b.c-mostWounded.c)+Math.abs(b.r-mostWounded.r));
+        return(hexDist(a.c,a.r,mostWounded.c,mostWounded.r))-(hexDist(b.c,b.r,mostWounded.c,mostWounded.r));
       })[0];
     }
   }
   // Default: move toward nearest enemy
-  var nearest=allies.slice().sort(function(a,b){return(Math.abs(a.c-e.c)+Math.abs(a.r-e.r))-(Math.abs(b.c-e.c)+Math.abs(b.r-e.r));})[0];
+  var nearest=allies.slice().sort(function(a,b){return(hexDist(a.c,a.r,e.c,e.r))-(hexDist(b.c,b.r,e.c,e.r));})[0];
   return moves.slice().sort(function(a,b){
-    return(Math.abs(a.c-nearest.c)+Math.abs(a.r-nearest.r))-(Math.abs(b.c-nearest.c)+Math.abs(b.r-nearest.r));
+    return(hexDist(a.c,a.r,nearest.c,nearest.r))-(hexDist(b.c,b.r,nearest.c,nearest.r));
   })[0];
 }
 
@@ -1849,7 +2110,7 @@ function aiActUnit(e){
     var sp2=getAdjacentFree(e.c,e.r);
     var hasNearbyInf=G.units.some(function(u){
       return u.team==='enemy'&&u.hp>0&&u.tags.indexOf('infantry')>=0
-        &&Math.abs(u.c-e.c)+Math.abs(u.r-e.r)<=3;
+        &&hexDist(u.c,u.r,e.c,e.r)<=3;
     });
     if(sp2&&!hasNearbyInf&&Math.random()<0.6){
       var sq2=createUnit('enemy_apc_'+Date.now(),'riflemen','enemy',sp2.c,sp2.r);
@@ -1944,7 +2205,7 @@ function vehicleExplosionCheck(unit){
     addLog('💥 '+unit.name+' EXPLOTA! Radio 2 tiles — '+dmg+' daño a unidades cercanas!','hit');
     G.units.forEach(function(u){
       if(u.id===unit.id||u.hp<=0) return;
-      var dist=Math.abs(u.c-unit.c)+Math.abs(u.r-unit.r);
+      var dist=hexDist(u.c,u.r,unit.c,unit.r);
       if(dist<=2){
         applyWounds(u, dmg, 1);
         addLog('  ↳ '+u.name+' recibe '+dmg+' daño por explosión','hit');
@@ -1978,6 +2239,69 @@ function clearSuppressionIfSuppressorDead(){
       u.suppressed=false;u.suppressTurns=0;
     });
   }
+}
+
+
+// =====================================================================
+// SCENARIO OBJECTIVES (RFIC-inspired)
+// =====================================================================
+var OBJECTIVE_DEFS = {
+  eliminate_all: {
+    label:'Eliminar todas las fuerzas enemigas',
+    check:function(){ return G.units.filter(function(u){return u.team==='enemy'&&u.hp>0;}).length===0; },
+    checkAllyLose:function(){ return G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length===0; }
+  },
+  eliminate_pct: {
+    label:'Eliminar 75% de fuerzas enemigas',
+    check:function(){
+      var total=G.objectiveData.enemyStartCount||1;
+      var remaining=G.units.filter(function(u){return u.team==='enemy'&&u.hp>0;}).length;
+      return remaining<=Math.floor(total*0.25);
+    },
+    checkAllyLose:function(){ return G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length===0; }
+  },
+  capture: {
+    label:'Capturar y mantener la zona objetivo',
+    check:function(){
+      if(!G.objectiveData.captureHex)return false;
+      var oh=G.objectiveData.captureHex;
+      var allyOnHex=G.units.filter(function(u){return u.team==='ally'&&u.hp>0&&u.c===oh.c&&u.r===oh.r;}).length>0;
+      var enemyOnHex=G.units.filter(function(u){return u.team==='enemy'&&u.hp>0&&u.c===oh.c&&u.r===oh.r;}).length>0;
+      if(allyOnHex&&!enemyOnHex){
+        G.objectiveData.captureProgress=(G.objectiveData.captureProgress||0)+1;
+        if(G.objectiveData.captureProgress>=3)return true;
+      }
+      return false;
+    },
+    checkAllyLose:function(){ return G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length===0; }
+  },
+  survive: {
+    label:'Sobrevivir 10 rondas',
+    check:function(){ return G.round>10&&G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length>0; },
+    checkAllyLose:function(){ return G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length===0; }
+  }
+};
+
+function initObjectives(scenario){
+  G.objectiveData={};
+  // Default objective based on scenario
+  var obj=scenario.objective||'eliminate_all';
+  G.currentObjective=obj;
+  if(obj==='eliminate_pct'){
+    G.objectiveData.enemyStartCount=G.units.filter(function(u){return u.team==='enemy'&&u.hp>0;}).length;
+  }
+  if(obj==='capture'){
+    // Center of map as capture point
+    G.objectiveData.captureHex={c:Math.floor(scenario.cols/2),r:Math.floor(scenario.rows/2)};
+    G.objectiveData.captureProgress=0;
+  }
+}
+
+function getObjectiveStatus(){
+  var obj=G.currentObjective||'eliminate_all';
+  var def=OBJECTIVE_DEFS[obj];
+  if(!def)return{won:false,lost:false,label:'?'};
+  return{won:def.check(),lost:def.checkAllyLose(),label:def.label};
 }
 
 function checkVictory(){
@@ -2274,6 +2598,72 @@ function updateForceTabCount(){
   if(badge) badge.textContent=G.deployedUnits&&G.deployedUnits.length?'('+G.deployedUnits.length+')':'';
 }
 
+
+// =====================================================================
+// CLOSE ASSAULT (RFIC-inspired)
+// =====================================================================
+function performCloseAssault(attacker, target){
+  addLog('⚔ ASALTO CUERPO A CUERPO: '+attacker.name+' vs '+target.name,'system');
+  var isVeh=attacker.tags.indexOf('vehicle')>=0;
+  var atkDice=isVeh?4:attacker.menAlive;
+  var defVeh=target.tags.indexOf('vehicle')>=0;
+  var defDice=defVeh?4:target.menAlive;
+
+  var atkRolls=rollDice(atkDice), defRolls=rollDice(defDice);
+  var atkTotal=atkRolls.reduce(function(s,d){return s+d;},0);
+  var defTotal=defRolls.reduce(function(s,d){return s+d;},0);
+  addLog('  '+attacker.name+': '+atkRolls+' = '+atkTotal,'system');
+  addLog('  '+target.name+': '+defRolls+' = '+defTotal,'system');
+
+  // Hits on 4+ (RFIC rule)
+  var atkHits=atkRolls.filter(function(d){return d>=4;}).length;
+  var defHits=defRolls.filter(function(d){return d>=4;}).length;
+
+  // Apply hits to both sides
+  if(atkHits>0) applyWounds(target, atkHits, 1);
+  if(defHits>0) applyWounds(attacker, defHits, 1);
+
+  // Winner: higher total. Loser retreats + gets suppressed
+  if(atkTotal>defTotal){
+    addLog('⚔ '+attacker.name+' gana el asalto!','hit');
+    // Move attacker to target's hex if target retreats
+    var retreatHex=findRetreatHex(target, attacker);
+    if(target.hp>0){
+      if(retreatHex){target.c=retreatHex.c;target.r=retreatHex.r;}
+      target.suppressed=true; target.suppressMarkers=Math.min(3,(target.suppressMarkers||0)+2);
+      addLog('  '+target.name+' retrocede y queda suprimido','suppress');
+    }
+    if(target.hp<=0){attacker.c=target.c;attacker.r=target.r;}
+  } else if(defTotal>atkTotal){
+    addLog('⚔ '+target.name+' rechaza el asalto!','hit');
+    var retreatHex=findRetreatHex(attacker, target);
+    if(retreatHex){attacker.c=retreatHex.c;attacker.r=retreatHex.r;}
+    attacker.suppressed=true; attacker.suppressMarkers=Math.min(3,(attacker.suppressMarkers||0)+2);
+    addLog('  '+attacker.name+' es rechazado y queda suprimido','suppress');
+  } else {
+    addLog('⚔ Empate — segunda ronda!','system');
+    // Tied: both take 1 more hit
+    applyWounds(target,1,1); applyWounds(attacker,1,1);
+  }
+
+  attacker.acted=true; attacker.moved=true; attacker.ap=0;
+  updateFog(); checkVictory();
+}
+
+function findRetreatHex(unit, fromUnit){
+  var neighbors=hexNeighbors(unit.c,unit.r);
+  // Find hex away from attacker
+  var best=null, bestDist=-1;
+  neighbors.forEach(function(n){
+    if(G.scenario.map[n.r][n.c].type==='wall')return;
+    var occupied=G.units.find(function(u){return u.hp>0&&u.c===n.c&&u.r===n.r;});
+    if(occupied)return;
+    var d=hexDist(n.c,n.r,fromUnit.c,fromUnit.r);
+    if(d>bestDist){bestDist=d;best=n;}
+  });
+  return best;
+}
+
 // =====================================================================
 // MOBILE PANEL SYSTEM
 // =====================================================================
@@ -2316,7 +2706,8 @@ function syncMobileUI(){
   }
   // Counts
   if(G.units){
-    var ac=G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length;
+    var status=getObjectiveStatus();
+  var ac=G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length;
     var ec=G.units.filter(function(u){return u.team==='enemy'&&u.hp>0;}).length;
     var mac=document.getElementById('mob-ally-count'); if(mac) mac.textContent=ac;
     var mec=document.getElementById('mob-enemy-count'); if(mec) mec.textContent=ec;
@@ -2331,7 +2722,7 @@ function syncMobileUI(){
   var dcl=document.getElementById('combat-log');
   if(mcl&&dcl){mcl.innerHTML=dcl.innerHTML;mcl.scrollTop=9999;}
   // Button states (mirror desktop to mobile)
-  ['move','attack','suppress','special','overwatch','endturn'].forEach(function(id){
+  ['move','attack','suppress','assault','special','overwatch','endturn'].forEach(function(id){
     var desk=document.getElementById('btn-'+id);
     var mob=document.getElementById('mob-btn-'+id);
     if(desk&&mob) mob.disabled=desk.disabled;
@@ -2345,7 +2736,7 @@ document.getElementById('mob-close-right').addEventListener('click',closeAllMobP
 document.getElementById('mob-scrim').addEventListener('click',closeAllMobPanels);
 
 // Mobile action buttons — mirror desktop
-['move','attack','suppress','special','overwatch','endturn'].forEach(function(id){
+['move','attack','suppress','assault','special','overwatch','endturn'].forEach(function(id){
   var mob=document.getElementById('mob-btn-'+id);
   var desk=document.getElementById('btn-'+id);
   if(mob&&desk) mob.addEventListener('click',function(){desk.click();closeAllMobPanels();});
@@ -2363,6 +2754,7 @@ document.getElementById('btn-new-game').addEventListener('click', initSceneSelec
 document.getElementById('btn-move').addEventListener('click', function(){setMode('move');});
 document.getElementById('btn-attack').addEventListener('click', function(){setMode('attack');});
 document.getElementById('btn-suppress').addEventListener('click', function(){setMode('suppress');});
+document.getElementById('btn-assault').addEventListener('click', function(){if(G.selected)setMode('assault');});
 document.getElementById('btn-special').addEventListener('click', doSpecialAction);
 document.getElementById('btn-overwatch').addEventListener('click', setOverwatch);
 document.getElementById('btn-endturn').addEventListener('click', endTurn);
