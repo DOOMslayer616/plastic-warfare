@@ -7,23 +7,20 @@ var STARTING_POINTS = 1200;
 // HEX GRID SYSTEM (flat-top offset coords, odd-r)
 // TILE = hex radius (center to vertex)
 // =====================================================================
-var HEX_W = TILE * 2;          // hex width
-var HEX_H = TILE * Math.sqrt(3); // hex height
-var HEX_HORIZ = TILE * 1.5;    // horizontal step
-var HEX_VERT  = HEX_H;         // vertical step
-
 // Convert hex grid coords (c,r) to canvas pixel center
+// Flat-top hexagons, odd columns offset down
 function hexToPixel(c, r){
-  var x = HEX_HORIZ * c + TILE;
-  var y = HEX_H * r + (c%2===1 ? HEX_H/2 : 0) + HEX_H/2;
+  var hh = TILE * Math.sqrt(3);  // hex height (flat-to-flat)
+  var x = TILE * 1.5 * c + TILE;
+  var y = hh * r + (c%2===1 ? hh/2 : 0) + hh/2;
   return {x:x, y:y};
 }
 
 // Convert canvas pixel to nearest hex coords
 function pixelToHex(px, py){
-  // Approximate, then refine by checking neighbors
-  var c = Math.round((px - TILE) / HEX_HORIZ);
-  var r = Math.round((py - (c%2===1 ? HEX_H/2 : 0) - HEX_H/2) / HEX_H);
+  var hh = TILE * Math.sqrt(3);
+  var c = Math.round((px - TILE) / (TILE * 1.5));
+  var r = Math.round((py - (c%2===1 ? hh/2 : 0) - hh/2) / hh);
   return closestHex(px, py, c, r);
 }
 
@@ -105,8 +102,13 @@ function drawHexPath(ctx, cx, cy, r){
 }
 
 // Canvas total size
-function hexGridWidth(cols){ return HEX_HORIZ * cols + TILE * 0.5; }
-function hexGridHeight(rows){ return HEX_H * rows + HEX_H * 0.5; }
+function hexGridWidth(cols){
+  return TILE * 1.5 * cols + TILE * 0.5;
+}
+function hexGridHeight(rows){
+  var hh=TILE*Math.sqrt(3);
+  return hh * rows + hh * 0.5;
+}
 
 
 
@@ -273,161 +275,161 @@ var ROOM_DEFS = {
   sala:{
     name:'Sala de Estar', icon:'🛋️',
     desc:'Sofás, sillones y mesa de café. Alcance medio.',
-    cols:20, rows:16,
+    cols:14, rows:11,
     floor:function(c,r){return ((c+r)%4<2)?'wood':'wood2';},
     walls:[[0,0,20,1],[0,15,20,1],[0,0,1,16],[19,0,1,16],[8,3,1,4],[11,9,1,4],[3,7,4,1],[13,7,4,1]],
     coverObjs:[
-      {c:2,r:2,w:3,h:1,type:'sofa',cover:'medium',label:'sofá'},
-      {c:15,r:2,w:3,h:1,type:'sofa',cover:'medium',label:'sofá'},
-      {c:2,r:12,w:3,h:1,type:'sofa',cover:'medium',label:'sofá'},
-      {c:15,r:12,w:3,h:1,type:'sofa',cover:'medium',label:'sofá'},
-      {c:9,r:7,w:2,h:2,type:'table_low',cover:'light',label:'mesa'},
-      {c:2,r:6,w:1,h:1,type:'armchair',cover:'light',label:'sillón'},
-      {c:17,r:6,w:1,h:1,type:'armchair',cover:'light',label:'sillón'},
-      {c:2,r:8,w:1,h:1,type:'armchair',cover:'light',label:'sillón'},
-      {c:17,r:8,w:1,h:1,type:'armchair',cover:'light',label:'sillón'},
-      {c:9,r:2,w:2,h:1,type:'tv_stand',cover:'heavy',label:'mueble TV'},
-      {c:9,r:12,w:2,h:1,type:'cabinet',cover:'medium',label:'vitrina'}
+      {c:1,r:1,w:2,h:1,type:'sofa',cover:'medium',label:'sofá'},
+      {c:10,r:1,w:2,h:1,type:'sofa',cover:'medium',label:'sofá'},
+      {c:1,r:8,w:2,h:1,type:'sofa',cover:'medium',label:'sofá'},
+      {c:10,r:8,w:2,h:1,type:'sofa',cover:'medium',label:'sofá'},
+      {c:6,r:5,w:1,h:1,type:'table_low',cover:'light',label:'mesa'},
+      {c:1,r:4,w:1,h:1,type:'armchair',cover:'light',label:'sillón'},
+      {c:12,r:4,w:1,h:1,type:'armchair',cover:'light',label:'sillón'},
+      {c:1,r:6,w:1,h:1,type:'armchair',cover:'light',label:'sillón'},
+      {c:12,r:6,w:1,h:1,type:'armchair',cover:'light',label:'sillón'},
+      {c:6,r:1,w:1,h:1,type:'tv_stand',cover:'heavy',label:'mueble TV'},
+      {c:6,r:8,w:1,h:1,type:'cabinet',cover:'medium',label:'vitrina'}
     ],
-    spawnZoneAlly:{c:1,r:1,w:5,h:14},
-    spawnZoneEnemy:{c:14,r:1,w:5,h:14}
+    spawnZoneAlly:{c:1,r:1,w:3,h:9},
+    spawnZoneEnemy:{c:10,r:1,w:3,h:9}
   },
   cocina:{
     name:'Cocina', icon:'🍳',
     desc:'Mesones perimetrales, isla central. Cobertura pesada.',
-    cols:18, rows:14,
+    cols:13, rows:10,
     floor:function(c,r){return ((c+r)%2===0)?'tile':'tile2';},
-    walls:[[0,0,18,1],[0,13,18,1],[0,0,1,14],[17,0,1,14],[7,5,4,1],[7,8,4,1]],
+    walls:[[0,0,13,1],[0,9,13,1],[0,0,1,10],[12,0,1,10],[4,3,3,1],[4,6,3,1]],
     coverObjs:[
-      {c:1,r:1,w:4,h:1,type:'counter',cover:'heavy',label:'mesón'},
-      {c:13,r:1,w:4,h:1,type:'counter',cover:'heavy',label:'mesón'},
-      {c:1,r:12,w:4,h:1,type:'counter',cover:'heavy',label:'mesón'},
-      {c:13,r:12,w:4,h:1,type:'counter',cover:'heavy',label:'mesón'},
-      {c:1,r:5,w:1,h:4,type:'counter',cover:'heavy',label:'mesón'},
-      {c:16,r:5,w:1,h:4,type:'counter',cover:'heavy',label:'mesón'},
-      {c:7,r:6,w:4,h:2,type:'island',cover:'heavy',label:'isla'},
-      {c:5,r:1,w:1,h:1,type:'fridge',cover:'heavy',label:'nevera'},
-      {c:11,r:1,w:1,h:1,type:'fridge',cover:'heavy',label:'nevera'},
-      {c:5,r:4,w:2,h:1,type:'cabinet',cover:'light',label:'gabinete'},
-      {c:11,r:4,w:2,h:1,type:'cabinet',cover:'light',label:'gabinete'}
+      {c:1,r:1,w:3,h:1,type:'counter',cover:'heavy',label:'mesón'},
+      {c:9,r:1,w:3,h:1,type:'counter',cover:'heavy',label:'mesón'},
+      {c:1,r:9,w:3,h:1,type:'counter',cover:'heavy',label:'mesón'},
+      {c:9,r:9,w:3,h:1,type:'counter',cover:'heavy',label:'mesón'},
+      {c:1,r:4,w:1,h:3,type:'counter',cover:'heavy',label:'mesón'},
+      {c:12,r:4,w:1,h:3,type:'counter',cover:'heavy',label:'mesón'},
+      {c:5,r:4,w:3,h:1,type:'island',cover:'heavy',label:'isla'},
+      {c:4,r:1,w:1,h:1,type:'fridge',cover:'heavy',label:'nevera'},
+      {c:8,r:1,w:1,h:1,type:'fridge',cover:'heavy',label:'nevera'},
+      {c:4,r:3,w:1,h:1,type:'cabinet',cover:'light',label:'gabinete'},
+      {c:8,r:3,w:1,h:1,type:'cabinet',cover:'light',label:'gabinete'}
     ],
-    spawnZoneAlly:{c:1,r:2,w:4,h:10},
-    spawnZoneEnemy:{c:13,r:2,w:4,h:10}
+    spawnZoneAlly:{c:1,r:1,w:3,h:8},
+    spawnZoneEnemy:{c:9,r:1,w:3,h:8}
   },
   comedor:{
     name:'Comedor', icon:'🪑',
     desc:'Gran mesa central con sillas. Espacio abierto y peligroso.',
-    cols:18, rows:14,
+    cols:13, rows:10,
     floor:function(c,r){return 'wood';},
     walls:[[0,0,18,1],[0,13,18,1],[0,0,1,14],[17,0,1,14],[5,0,1,5],[12,0,1,5],[5,9,1,5],[12,9,1,5]],
     coverObjs:[
-      {c:6,r:4,w:6,h:5,type:'dining_table',cover:'heavy',label:'mesa comedor'},
-      {c:5,r:4,w:1,h:1,type:'chair',cover:'none',label:'silla'},
-      {c:12,r:4,w:1,h:1,type:'chair',cover:'none',label:'silla'},
-      {c:5,r:8,w:1,h:1,type:'chair',cover:'none',label:'silla'},
-      {c:12,r:8,w:1,h:1,type:'chair',cover:'none',label:'silla'},
-      {c:1,r:1,w:2,h:1,type:'cabinet_tall',cover:'heavy',label:'vitrina'},
-      {c:15,r:1,w:2,h:1,type:'cabinet_tall',cover:'heavy',label:'vitrina'},
-      {c:1,r:11,w:2,h:1,type:'cabinet_tall',cover:'heavy',label:'vitrina'},
-      {c:15,r:11,w:2,h:1,type:'cabinet_tall',cover:'heavy',label:'vitrina'}
+      {c:4,r:3,w:4,h:4,type:'dining_table',cover:'heavy',label:'mesa comedor'},
+      {c:4,r:3,w:1,h:1,type:'chair',cover:'none',label:'silla'},
+      {c:9,r:3,w:1,h:1,type:'chair',cover:'none',label:'silla'},
+      {c:4,r:6,w:1,h:1,type:'chair',cover:'none',label:'silla'},
+      {c:9,r:6,w:1,h:1,type:'chair',cover:'none',label:'silla'},
+      {c:1,r:1,w:1,h:1,type:'cabinet_tall',cover:'heavy',label:'vitrina'},
+      {c:11,r:1,w:1,h:1,type:'cabinet_tall',cover:'heavy',label:'vitrina'},
+      {c:1,r:8,w:1,h:1,type:'cabinet_tall',cover:'heavy',label:'vitrina'},
+      {c:11,r:8,w:1,h:1,type:'cabinet_tall',cover:'heavy',label:'vitrina'}
     ],
-    spawnZoneAlly:{c:1,r:1,w:4,h:12},
-    spawnZoneEnemy:{c:13,r:1,w:4,h:12}
+    spawnZoneAlly:{c:1,r:1,w:3,h:8},
+    spawnZoneEnemy:{c:9,r:1,w:3,h:8}
   },
   cochera:{
     name:'Cochera', icon:'🚗',
     desc:'Autos estacionados, barriles y estantes. Terreno denso.',
-    cols:22, rows:16,
+    cols:15, rows:11,
     floor:function(c,r){return 'concrete';},
     walls:[[0,0,22,1],[0,15,22,1],[0,0,1,16],[21,0,1,16],[10,0,2,6],[10,10,2,6]],
     coverObjs:[
-      {c:3,r:3,w:4,h:2,type:'car',cover:'heavy',label:'auto'},
-      {c:15,r:3,w:4,h:2,type:'car',cover:'heavy',label:'auto'},
-      {c:3,r:10,w:4,h:2,type:'car',cover:'heavy',label:'auto'},
-      {c:15,r:10,w:4,h:2,type:'car',cover:'heavy',label:'auto'},
-      {c:8,r:7,w:2,h:2,type:'barrel',cover:'light',label:'barriles'},
-      {c:12,r:7,w:2,h:2,type:'barrel',cover:'light',label:'barriles'},
-      {c:1,r:7,w:1,h:3,type:'shelf',cover:'light',label:'estante'},
-      {c:20,r:7,w:1,h:3,type:'shelf',cover:'light',label:'estante'},
-      {c:8,r:2,w:2,h:1,type:'toolbox',cover:'light',label:'caja herr.'},
-      {c:12,r:12,w:2,h:1,type:'toolbox',cover:'light',label:'caja herr.'}
+      {c:2,r:2,w:3,h:1,type:'car',cover:'heavy',label:'auto'},
+      {c:10,r:2,w:3,h:1,type:'car',cover:'heavy',label:'auto'},
+      {c:2,r:7,w:3,h:1,type:'car',cover:'heavy',label:'auto'},
+      {c:10,r:7,w:3,h:1,type:'car',cover:'heavy',label:'auto'},
+      {c:5,r:5,w:1,h:1,type:'barrel',cover:'light',label:'barriles'},
+      {c:8,r:5,w:1,h:1,type:'barrel',cover:'light',label:'barriles'},
+      {c:1,r:5,w:1,h:2,type:'shelf',cover:'light',label:'estante'},
+      {c:14,r:5,w:1,h:2,type:'shelf',cover:'light',label:'estante'},
+      {c:5,r:1,w:1,h:1,type:'toolbox',cover:'light',label:'caja herr.'},
+      {c:8,r:8,w:1,h:1,type:'toolbox',cover:'light',label:'caja herr.'}
     ],
-    spawnZoneAlly:{c:1,r:1,w:4,h:14},
-    spawnZoneEnemy:{c:17,r:1,w:4,h:14}
+    spawnZoneAlly:{c:1,r:1,w:3,h:9},
+    spawnZoneEnemy:{c:11,r:1,w:3,h:9}
   },
   patio:{
     name:'Patio', icon:'🌿',
     desc:'Árboles, setos y muros bajos. Terreno abierto.',
-    cols:22, rows:18,
+    cols:15, rows:12,
     floor:function(c,r){return ((c*3+r*2)%7<2)?'stone':'grass';},
     walls:[[0,0,22,1],[0,17,22,1],[0,0,1,18],[21,0,1,18],[9,7,4,1],[9,10,4,1]],
     coverObjs:[
-      {c:4,r:3,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
-      {c:8,r:5,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
-      {c:4,r:12,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
-      {c:8,r:14,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
-      {c:13,r:3,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
-      {c:17,r:5,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
-      {c:13,r:12,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
-      {c:17,r:14,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
-      {c:3,r:7,w:3,h:1,type:'hedge',cover:'light',label:'seto'},
-      {c:16,r:7,w:3,h:1,type:'hedge',cover:'light',label:'seto'},
-      {c:3,r:10,w:3,h:1,type:'hedge',cover:'light',label:'seto'},
-      {c:16,r:10,w:3,h:1,type:'hedge',cover:'light',label:'seto'},
-      {c:9,r:4,w:4,h:1,type:'wall_low',cover:'medium',label:'muro'},
-      {c:9,r:12,w:4,h:1,type:'wall_low',cover:'medium',label:'muro'},
-      {c:7,r:8,w:1,h:2,type:'wall_low',cover:'medium',label:'muro'},
-      {c:14,r:8,w:1,h:2,type:'wall_low',cover:'medium',label:'muro'}
+      {c:3,r:2,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
+      {c:5,r:3,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
+      {c:3,r:8,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
+      {c:5,r:9,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
+      {c:9,r:2,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
+      {c:12,r:3,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
+      {c:9,r:8,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
+      {c:12,r:9,w:1,h:1,type:'tree',cover:'light',label:'árbol'},
+      {c:2,r:5,w:2,h:1,type:'hedge',cover:'light',label:'seto'},
+      {c:11,r:5,w:2,h:1,type:'hedge',cover:'light',label:'seto'},
+      {c:2,r:7,w:2,h:1,type:'hedge',cover:'light',label:'seto'},
+      {c:11,r:7,w:2,h:1,type:'hedge',cover:'light',label:'seto'},
+      {c:6,r:3,w:3,h:1,type:'wall_low',cover:'medium',label:'muro'},
+      {c:6,r:8,w:3,h:1,type:'wall_low',cover:'medium',label:'muro'},
+      {c:5,r:5,w:1,h:1,type:'wall_low',cover:'medium',label:'muro'},
+      {c:10,r:5,w:1,h:1,type:'wall_low',cover:'medium',label:'muro'}
     ],
-    spawnZoneAlly:{c:1,r:1,w:5,h:16},
-    spawnZoneEnemy:{c:16,r:1,w:5,h:16}
+    spawnZoneAlly:{c:1,r:1,w:3,h:10},
+    spawnZoneEnemy:{c:11,r:1,w:3,h:10}
   },
   cuarto:{
     name:'Cuarto', icon:'🛏️',
     desc:'Camas, roperos y escritorio. Espacio reducido.',
-    cols:16, rows:14,
+    cols:12, rows:10,
     floor:function(c,r){return 'carpet';},
     walls:[[0,0,16,1],[0,13,16,1],[0,0,1,14],[15,0,1,14],[6,0,1,5],[6,9,1,5],[9,0,1,5],[9,9,1,5]],
     coverObjs:[
-      {c:2,r:2,w:3,h:1,type:'bed',cover:'medium',label:'cama'},
-      {c:11,r:2,w:3,h:1,type:'bed',cover:'medium',label:'cama'},
-      {c:1,r:5,w:1,h:2,type:'wardrobe',cover:'heavy',label:'ropero'},
-      {c:14,r:5,w:1,h:2,type:'wardrobe',cover:'heavy',label:'ropero'},
-      {c:1,r:10,w:1,h:2,type:'wardrobe',cover:'heavy',label:'ropero'},
-      {c:14,r:10,w:1,h:2,type:'wardrobe',cover:'heavy',label:'ropero'},
-      {c:6,r:6,w:4,h:2,type:'desk',cover:'medium',label:'escritorio'},
-      {c:2,r:11,w:2,h:1,type:'nightstand',cover:'none',label:'mesita'},
-      {c:12,r:11,w:2,h:1,type:'nightstand',cover:'none',label:'mesita'}
+      {c:2,r:1,w:2,h:1,type:'bed',cover:'medium',label:'cama'},
+      {c:8,r:1,w:2,h:1,type:'bed',cover:'medium',label:'cama'},
+      {c:1,r:4,w:1,h:1,type:'wardrobe',cover:'heavy',label:'ropero'},
+      {c:10,r:4,w:1,h:1,type:'wardrobe',cover:'heavy',label:'ropero'},
+      {c:1,r:7,w:1,h:1,type:'wardrobe',cover:'heavy',label:'ropero'},
+      {c:10,r:7,w:1,h:1,type:'wardrobe',cover:'heavy',label:'ropero'},
+      {c:4,r:4,w:3,h:1,type:'desk',cover:'medium',label:'escritorio'},
+      {c:2,r:8,w:2,h:1,type:'nightstand',cover:'none',label:'mesita'},
+      {c:9,r:8,w:2,h:1,type:'nightstand',cover:'none',label:'mesita'}
     ],
-    spawnZoneAlly:{c:1,r:1,w:4,h:12},
-    spawnZoneEnemy:{c:11,r:1,w:4,h:12}
+    spawnZoneAlly:{c:1,r:1,w:3,h:8},
+    spawnZoneEnemy:{c:8,r:1,w:3,h:8}
   },
   atico:{
     name:'Ático', icon:'📦',
     desc:'Cajas, baúles y columnas. Visibilidad reducida.',
-    cols:20, rows:16,
+    cols:14, rows:11,
     floor:function(c,r){return 'wood_old';},
     walls:[[0,0,20,1],[0,15,20,1],[0,0,1,16],[19,0,1,16],[4,4,1,8],[15,4,1,8],[8,0,4,4],[8,12,4,4]],
     coverObjs:[
+      {c:1,r:1,w:1,h:1,type:'box',cover:'light',label:'caja'},
       {c:2,r:2,w:1,h:1,type:'box',cover:'light',label:'caja'},
-      {c:3,r:3,w:1,h:1,type:'box',cover:'light',label:'caja'},
-      {c:16,r:2,w:1,h:1,type:'box',cover:'light',label:'caja'},
-      {c:17,r:3,w:1,h:1,type:'box',cover:'light',label:'caja'},
-      {c:2,r:11,w:2,h:1,type:'trunk',cover:'medium',label:'baúl'},
-      {c:16,r:11,w:2,h:1,type:'trunk',cover:'medium',label:'baúl'},
-      {c:2,r:13,w:2,h:1,type:'trunk',cover:'medium',label:'baúl'},
-      {c:16,r:13,w:2,h:1,type:'trunk',cover:'medium',label:'baúl'},
-      {c:5,r:5,w:1,h:2,type:'shelf_old',cover:'light',label:'repisa'},
-      {c:14,r:5,w:1,h:2,type:'shelf_old',cover:'light',label:'repisa'},
-      {c:5,r:9,w:1,h:2,type:'shelf_old',cover:'light',label:'repisa'},
-      {c:14,r:9,w:1,h:2,type:'shelf_old',cover:'light',label:'repisa'},
-      {c:9,r:5,w:2,h:1,type:'column',cover:'heavy',label:'columna'},
-      {c:9,r:9,w:2,h:1,type:'column',cover:'heavy',label:'columna'},
-      {c:6,r:7,w:2,h:2,type:'box',cover:'light',label:'cajas'},
-      {c:12,r:7,w:2,h:2,type:'box',cover:'light',label:'cajas'}
+      {c:11,r:1,w:1,h:1,type:'box',cover:'light',label:'caja'},
+      {c:12,r:2,w:1,h:1,type:'box',cover:'light',label:'caja'},
+      {c:1,r:8,w:1,h:1,type:'trunk',cover:'medium',label:'baúl'},
+      {c:11,r:8,w:1,h:1,type:'trunk',cover:'medium',label:'baúl'},
+      {c:1,r:9,w:1,h:1,type:'trunk',cover:'medium',label:'baúl'},
+      {c:11,r:9,w:1,h:1,type:'trunk',cover:'medium',label:'baúl'},
+      {c:4,r:3,w:1,h:1,type:'shelf_old',cover:'light',label:'repisa'},
+      {c:10,r:3,w:1,h:1,type:'shelf_old',cover:'light',label:'repisa'},
+      {c:4,r:6,w:1,h:1,type:'shelf_old',cover:'light',label:'repisa'},
+      {c:10,r:6,w:1,h:1,type:'shelf_old',cover:'light',label:'repisa'},
+      {c:6,r:3,w:1,h:1,type:'column',cover:'heavy',label:'columna'},
+      {c:6,r:6,w:1,h:1,type:'column',cover:'heavy',label:'columna'},
+      {c:4,r:5,w:1,h:1,type:'box',cover:'light',label:'cajas'},
+      {c:8,r:5,w:1,h:1,type:'box',cover:'light',label:'cajas'}
     ],
-    spawnZoneAlly:{c:1,r:1,w:5,h:14},
-    spawnZoneEnemy:{c:14,r:1,w:5,h:14}
+    spawnZoneAlly:{c:1,r:1,w:3,h:9},
+    spawnZoneEnemy:{c:10,r:1,w:3,h:9}
   }
 };
 
@@ -1213,12 +1215,12 @@ function drawUnit(ctx,u,exhausted){
     // AP dots
     for(var i=0;i<u.maxAp;i++){
       ctx.fillStyle=i<u.ap?'#ffe066':'rgba(0,0,0,.4)';
-      ctx.beginPath(); ctx.arc(x+7+i*9, y+5, 3, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x-u.maxAp*4.5+i*9, p.y-hh2/2+6, 3, 0, Math.PI*2); ctx.fill();
     }
 
     // Team dot
     ctx.fillStyle=u.team==='ally'?'#4adf3a':'#df3030';
-    ctx.beginPath(); ctx.arc(x+TILE-6, y+6, 3.5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x+TILE*0.7, p.y-hh2/2+7, 4, 0, Math.PI*2); ctx.fill();
 
     // Status icons
     if(u.suppressed){ ctx.fillStyle='rgba(200,120,255,.95)'; ctx.font='11px monospace'; ctx.textAlign='center'; ctx.fillText('⚡',x+TILE/2,y+14); }
@@ -1247,9 +1249,12 @@ function drawUnit(ctx,u,exhausted){
   ctx.fillText(u.icon,x+TILE/2,y+TILE/2+(isVehicle?0:-5));
   ctx.fillStyle='rgba(255,255,255,.65)';ctx.font='bold 6px monospace';
   ctx.fillText(u.abbr,x+TILE/2,y+TILE-15);
-  var bw=TILE-6,frac=Math.max(0,u.hp/u.maxHp);
-  ctx.fillStyle='rgba(0,0,0,.5)';ctx.fillRect(x+3,y+TILE-6,bw,4);
-  ctx.fillStyle=frac>.6?'#4a9a3a':frac>.3?'#c8820a':'#aa2020';ctx.fillRect(x+3,y+TILE-6,bw*frac,4);
+  // HP bar at bottom of hex
+  var hh2=TILE*Math.sqrt(3);
+  var bw=TILE*1.2, bx=p.x-bw/2, by=p.y+hh2/2-7;
+  var frac=Math.max(0,u.hp/u.maxHp);
+  ctx.fillStyle='rgba(0,0,0,.5)';ctx.fillRect(bx,by,bw,4);
+  ctx.fillStyle=frac>.6?'#4a9a3a':frac>.3?'#c8820a':'#aa2020';ctx.fillRect(bx,by,bw*frac,4);
   ctx.fillStyle=u.team==='ally'?'#4aaa3a':'#cc3030';ctx.beginPath();ctx.arc(x+5,y+5,2.5,0,Math.PI*2);ctx.fill();
   if(u.suppressed){ctx.fillStyle='rgba(180,100,220,.8)';ctx.font='9px monospace';ctx.fillText('⚡',x+TILE-8,y+8);}
   if(u.overwatch){ctx.fillStyle='rgba(200,160,20,.9)';ctx.font='9px monospace';ctx.fillText('👁',x+TILE/2,y+8);}
