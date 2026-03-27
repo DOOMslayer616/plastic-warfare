@@ -11,7 +11,8 @@
 <body>
 
 <!-- ═══ SCENE SELECT ═══ -->
-<div id="screen-scene" class="screen">
+<div id="screen-scene" class="screen" style="position:relative">
+  <button id="btn-audio-toggle" onclick="toggleAudio()" style="position:absolute;top:16px;right:16px;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);font-size:18px;width:38px;height:38px;cursor:pointer;border-radius:4px">🔊</button>
   <div class="scene-title">PLASTIC WARFARE</div>
   <div style="font-size:9px;color:var(--text3);letter-spacing:4px;margin-top:-12px">v6.0 · TABLERO HEXAGONAL · RFIC MECHANICS</div>
   <div id="scene-grid" class="scene-grid"></div>
@@ -86,6 +87,7 @@
       </div>
     </div>
     <div class="map-ctrl">
+      <button id="btn-audio-toggle-game" onclick="toggleAudio()" style="background:var(--bg3);border:1px solid var(--border2);color:var(--text2);font-size:14px;width:26px;height:26px;cursor:pointer;margin-bottom:4px">🔊</button>
       <button class="zb" id="btn-zoom-in">+</button>
       <div id="zoom-label">100%</div>
       <button class="zb" id="btn-zoom-out">−</button>

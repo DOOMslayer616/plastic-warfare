@@ -1,3 +1,357 @@
+
+/* ═══════════════════════════════════════════════════════════════
+   AUDIO SYSTEM — Procedural Web Audio API
+   Music: generative chiptune/military
+   SFX: synthesized, no external files needed
+   ═══════════════════════════════════════════════════════════════ */
+var AC = null;
+var MUSIC_NODE = null;
+var SFX_VOL = 0.55;
+var MUSIC_VOL = 0.32;
+var AUDIO_ENABLED = true;
+var CURRENT_TRACK = null;
+var musicTimeouts = [];
+
+function getAC() {
+  if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+  if (AC.state === 'suspended') AC.resume();
+  return AC;
+}
+
+// ── Master volume nodes ───────────────────────────────────────────────
+function makeMasterGain(vol) {
+  var g = getAC().createGain();
+  g.gain.value = vol;
+  g.connect(getAC().destination);
+  return g;
+}
+
+// ── LOW-LEVEL SYNTH PRIMITIVES ────────────────────────────────────────
+function playTone(freq, type, dur, vol, delay, dest) {
+  var ac = getAC();
+  var osc = ac.createOscillator();
+  var env = ac.createGain();
+  osc.type = type || 'square';
+  osc.frequency.value = freq;
+  env.gain.setValueAtTime(0, ac.currentTime + delay);
+  env.gain.linearRampToValueAtTime(vol, ac.currentTime + delay + 0.01);
+  env.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + delay + dur);
+  osc.connect(env); env.connect(dest || ac.destination);
+  osc.start(ac.currentTime + delay);
+  osc.stop(ac.currentTime + delay + dur + 0.02);
+}
+
+function playNoise(dur, vol, delay, cutoff, dest) {
+  var ac = getAC();
+  var buf = ac.createBuffer(1, ac.sampleRate * dur, ac.sampleRate);
+  var data = buf.getChannelData(0);
+  for (var i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  var src = ac.createBufferSource();
+  src.buffer = buf;
+  var filt = ac.createBiquadFilter();
+  filt.type = 'lowpass'; filt.frequency.value = cutoff || 800;
+  var env = ac.createGain();
+  env.gain.setValueAtTime(0, ac.currentTime + delay);
+  env.gain.linearRampToValueAtTime(vol, ac.currentTime + delay + 0.005);
+  env.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + delay + dur);
+  src.connect(filt); filt.connect(env); env.connect(dest || ac.destination);
+  src.start(ac.currentTime + delay);
+}
+
+function stopAllMusic() {
+  musicTimeouts.forEach(clearTimeout); musicTimeouts = [];
+  if (MUSIC_NODE) { try { MUSIC_NODE.gain.linearRampToValueAtTime(0, getAC().currentTime + 0.5); } catch(e){} }
+  MUSIC_NODE = null; CURRENT_TRACK = null;
+}
+
+// ── SOUND EFFECTS ─────────────────────────────────────────────────────
+var SFX = {
+
+  click: function() {
+    if(!AUDIO_ENABLED) return;
+    var m = makeMasterGain(SFX_VOL * 0.4);
+    playTone(880, 'square', 0.04, 0.3, 0, m);
+    playTone(1100, 'square', 0.03, 0.2, 0.02, m);
+  },
+
+  select: function() {
+    if(!AUDIO_ENABLED) return;
+    var m = makeMasterGain(SFX_VOL * 0.5);
+    playTone(440, 'triangle', 0.06, 0.4, 0, m);
+    playTone(550, 'triangle', 0.06, 0.35, 0.05, m);
+  },
+
+  move: function() {
+    if(!AUDIO_ENABLED) return;
+    var m = makeMasterGain(SFX_VOL * 0.35);
+    playNoise(0.08, 0.6, 0, 300, m);
+    playTone(220, 'sine', 0.1, 0.2, 0.02, m);
+  },
+
+  rifle: function() {
+    if(!AUDIO_ENABLED) return;
+    var m = makeMasterGain(SFX_VOL * 0.7);
+    playNoise(0.04, 1.0, 0, 2000, m);
+    playNoise(0.12, 0.5, 0.03, 400, m);
+    playTone(180, 'sawtooth', 0.08, 0.3, 0, m);
+  },
+
+  explosion: function() {
+    if(!AUDIO_ENABLED) return;
+    var m = makeMasterGain(SFX_VOL * 0.9);
+    playNoise(0.05, 1.0, 0, 4000, m);
+    playNoise(0.6, 0.8, 0.04, 120, m);
+    playNoise(0.3, 0.6, 0.0, 600, m);
+    playTone(80, 'sine', 0.4, 0.5, 0, m);
+    playTone(55, 'sine', 0.6, 0.4, 0.05, m);
+  },
+
+  hit: function() {
+    if(!AUDIO_ENABLED) return;
+    var m = makeMasterGain(SFX_VOL * 0.6);
+    playNoise(0.08, 0.9, 0, 1200, m);
+    playTone(120, 'sawtooth', 0.15, 0.4, 0.02, m);
+  },
+
+  miss: function() {
+    if(!AUDIO_ENABLED) return;
+    var m = makeMasterGain(SFX_VOL * 0.3);
+    playTone(300, 'sine', 0.08, 0.3, 0, m);
+    playTone(260, 'sine', 0.06, 0.2, 0.06, m);
+  },
+
+  heal: function() {
+    if(!AUDIO_ENABLED) return;
+    var m = makeMasterGain(SFX_VOL * 0.45);
+    [0,0.07,0.14].forEach(function(d, i) {
+      playTone([523,659,784][i], 'sine', 0.12, 0.3, d, m);
+    });
+  },
+
+  suppress: function() {
+    if(!AUDIO_ENABLED) return;
+    var m = makeMasterGain(SFX_VOL * 0.6);
+    for(var i=0;i<4;i++) {
+      playNoise(0.03, 0.8, i*0.06, 2500, m);
+      playTone(160 + i*10, 'sawtooth', 0.04, 0.3, i*0.06, m);
+    }
+  },
+
+  assault: function() {
+    if(!AUDIO_ENABLED) return;
+    var m = makeMasterGain(SFX_VOL * 0.75);
+    playNoise(0.04, 1.0, 0, 3000, m);
+    playNoise(0.04, 0.9, 0.05, 2500, m);
+    playTone(200, 'sawtooth', 0.2, 0.5, 0, m);
+    playTone(160, 'square', 0.15, 0.4, 0.08, m);
+  },
+
+  victory: function() {
+    if(!AUDIO_ENABLED) return;
+    var m = makeMasterGain(SFX_VOL * 0.8);
+    var melody = [523,659,784,1047];
+    melody.forEach(function(f,i){ playTone(f,'square',0.25,0.5,i*0.18,m); });
+    playTone(523,'triangle',0.8,0.4,0.8,m);
+    playTone(659,'triangle',0.6,0.35,0.85,m);
+    playTone(784,'triangle',0.7,0.4,0.9,m);
+  },
+
+  defeat: function() {
+    if(!AUDIO_ENABLED) return;
+    var m = makeMasterGain(SFX_VOL * 0.7);
+    [392,349,330,294,262].forEach(function(f,i){ playTone(f,'sawtooth',0.3,0.4,i*0.22,m); });
+  },
+
+  deploy: function() {
+    if(!AUDIO_ENABLED) return;
+    var m = makeMasterGain(SFX_VOL * 0.5);
+    playTone(330,'square',0.06,0.3,0,m);
+    playTone(440,'square',0.06,0.35,0.07,m);
+    playTone(550,'square',0.1,0.4,0.14,m);
+  },
+
+  turn_end: function() {
+    if(!AUDIO_ENABLED) return;
+    var m = makeMasterGain(SFX_VOL * 0.4);
+    playTone(440,'triangle',0.08,0.3,0,m);
+    playTone(330,'triangle',0.12,0.25,0.09,m);
+  },
+};
+
+// ── MUSIC TRACKS ──────────────────────────────────────────────────────
+// Each track is a sequencer built from tone patterns
+
+function playMusicTrack(trackName) {
+  if(!AUDIO_ENABLED) return;
+  stopAllMusic();
+  CURRENT_TRACK = trackName;
+  var ac = getAC();
+  var master = ac.createGain();
+  master.gain.value = MUSIC_VOL;
+  master.connect(ac.destination);
+  MUSIC_NODE = master;
+
+  if(trackName === 'menu')    _musicMenu(master);
+  if(trackName === 'deploy')  _musicDeploy(master);
+  if(trackName === 'battle')  _musicBattle(master);
+}
+
+// ── MENU: Tense military ambient, slow pulse ──────────────────────────
+function _musicMenu(dest) {
+  var ac = getAC();
+  var bpm = 72, beat = 60/bpm;
+
+  // Repeating bass drone
+  function drone() {
+    if(CURRENT_TRACK !== 'menu') return;
+    [55, 55, 65, 55].forEach(function(f, i) {
+      playTone(f, 'sine', beat * 3.8, 0.5, i * beat, dest);
+    });
+    musicTimeouts.push(setTimeout(drone, beat * 4 * 1000));
+  }
+
+  // Slow snare-like hits
+  function snare() {
+    if(CURRENT_TRACK !== 'menu') return;
+    playNoise(0.06, 0.35, 0, 1800, dest);
+    musicTimeouts.push(setTimeout(snare, beat * 4 * 1000));
+  }
+
+  // Eerie high notes
+  var menuMelody = [
+    220,0,220,0, 196,0,220,0,
+    233,0,220,0, 196,0,0,0
+  ];
+  function melody(pos) {
+    if(CURRENT_TRACK !== 'menu') return;
+    var f = menuMelody[pos % menuMelody.length];
+    if(f) playTone(f, 'triangle', beat * 0.8, 0.18, 0, dest);
+    musicTimeouts.push(setTimeout(function(){ melody(pos+1); }, beat * 1000));
+  }
+
+  drone(); 
+  musicTimeouts.push(setTimeout(snare, beat * 2 * 1000));
+  musicTimeouts.push(setTimeout(function(){ melody(0); }, 200));
+}
+
+// ── DEPLOY: Tactical briefing, tense but controlled ───────────────────
+function _musicDeploy(dest) {
+  var ac = getAC();
+  var bpm = 88, beat = 60/bpm;
+
+  var bassLine = [110,0,110,0, 98,0,110,0, 117,0,110,0, 98,0,0,0];
+  function bass(pos) {
+    if(CURRENT_TRACK !== 'deploy') return;
+    var f = bassLine[pos % bassLine.length];
+    if(f) playTone(f, 'sawtooth', beat * 0.45, 0.35, 0, dest);
+    musicTimeouts.push(setTimeout(function(){ bass(pos+1); }, beat * 1000));
+  }
+
+  // Kick-like thud every 4 beats
+  function kick() {
+    if(CURRENT_TRACK !== 'deploy') return;
+    playTone(80, 'sine', 0.12, 0.5, 0, dest);
+    playNoise(0.04, 0.3, 0, 200, dest);
+    musicTimeouts.push(setTimeout(kick, beat * 4 * 1000));
+  }
+
+  // Hi-hat pattern
+  var hatPat = [1,0,1,1, 1,0,1,0];
+  function hat(pos) {
+    if(CURRENT_TRACK !== 'deploy') return;
+    if(hatPat[pos % hatPat.length]) playNoise(0.025, 0.2, 0, 6000, dest);
+    musicTimeouts.push(setTimeout(function(){ hat(pos+1); }, beat * 0.5 * 1000));
+  }
+
+  // Sparse melody: military march feel
+  var marchMel = [
+    262,0,330,0, 392,0,330,262,
+    294,0,0,0,   262,0,0,0
+  ];
+  function marchMelody(pos) {
+    if(CURRENT_TRACK !== 'deploy') return;
+    var f = marchMel[pos % marchMel.length];
+    if(f) playTone(f, 'square', beat * 0.7, 0.15, 0, dest);
+    musicTimeouts.push(setTimeout(function(){ marchMelody(pos+1); }, beat * 0.5 * 1000));
+  }
+
+  bass(0); kick();
+  musicTimeouts.push(setTimeout(function(){ hat(0); }, 100));
+  musicTimeouts.push(setTimeout(function(){ marchMelody(0); }, beat * 4 * 1000));
+}
+
+// ── BATTLE: Intense, driving rhythm ──────────────────────────────────
+function _musicBattle(dest) {
+  var ac = getAC();
+  var bpm = 140, beat = 60/bpm;
+
+  // Driving bass
+  var battleBass = [
+    73,0,73,73, 65,0,73,0,
+    78,0,73,65, 73,0,0,0
+  ];
+  function battleB(pos) {
+    if(CURRENT_TRACK !== 'battle') return;
+    var f = battleBass[pos % battleBass.length];
+    if(f) playTone(f, 'sawtooth', beat * 0.4, 0.4, 0, dest);
+    musicTimeouts.push(setTimeout(function(){ battleB(pos+1); }, beat * 0.5 * 1000));
+  }
+
+  // Fast kick pattern
+  var kickPat = [1,0,0,1, 0,0,1,0];
+  function battleKick(pos) {
+    if(CURRENT_TRACK !== 'battle') return;
+    if(kickPat[pos % kickPat.length]) {
+      playTone(70, 'sine', 0.08, 0.6, 0, dest);
+      playNoise(0.03, 0.4, 0, 150, dest);
+    }
+    musicTimeouts.push(setTimeout(function(){ battleKick(pos+1); }, beat * 0.5 * 1000));
+  }
+
+  // Snare on 2 and 4
+  var snarePat = [0,0,1,0, 0,0,1,0];
+  function battleSnare(pos) {
+    if(CURRENT_TRACK !== 'battle') return;
+    if(snarePat[pos % snarePat.length]) playNoise(0.1, 0.55, 0, 2200, dest);
+    musicTimeouts.push(setTimeout(function(){ battleSnare(pos+1); }, beat * 0.5 * 1000));
+  }
+
+  // Relentless hi-hat
+  function battleHat(pos) {
+    if(CURRENT_TRACK !== 'battle') return;
+    playNoise(0.02, 0.15, 0, 8000, dest);
+    musicTimeouts.push(setTimeout(function(){ battleHat(pos+1); }, beat * 0.5 * 1000));
+  }
+
+  // Aggressive melody: intervals of 4ths and tritones
+  var battleMel = [
+    0,0,196,0,    0,196,220,0,
+    0,0,196,175,  196,0,0,0,
+    0,0,233,0,    0,233,262,0,
+    0,0,233,220,  233,0,0,0
+  ];
+  function battleMelody(pos) {
+    if(CURRENT_TRACK !== 'battle') return;
+    var f = battleMel[pos % battleMel.length];
+    if(f) playTone(f, 'square', beat * 0.35, 0.2, 0, dest);
+    musicTimeouts.push(setTimeout(function(){ battleMelody(pos+1); }, beat * 0.5 * 1000));
+  }
+
+  battleB(0); battleKick(0); battleSnare(0);
+  musicTimeouts.push(setTimeout(function(){ battleHat(0); }, 50));
+  musicTimeouts.push(setTimeout(function(){ battleMelody(0); }, beat * 2 * 1000));
+}
+
+// ── AUDIO TOGGLE BUTTON ───────────────────────────────────────────────
+function toggleAudio() {
+  AUDIO_ENABLED = !AUDIO_ENABLED;
+  var btn = document.getElementById('btn-audio-toggle');
+  if(btn) btn.textContent = AUDIO_ENABLED ? '🔊' : '🔇';
+  if(!AUDIO_ENABLED) stopAllMusic();
+  else if(CURRENT_TRACK) playMusicTrack(CURRENT_TRACK);
+}
+
+
 /* PLASTIC WARFARE v6.0 — JavaScript */
 /* ═══════════════════════════════════════════════════════════════
    SECTION 1: HEX MATH (single source of truth, no square coords)
@@ -223,15 +577,14 @@ var GRADES = {
 var WEAPONS = {
   assault_rifle:  {name:'Rifle Asalto',    atk:1,bs:4,range:4,ap:0,dmg:1,abilities:['rapid_fire']},
   smg:            {name:'Subfusil',         atk:2,bs:4,range:2,ap:0,dmg:1,abilities:['rapid_fire']},
-  sniper_rifle:   {name:'Rifle Precisión', atk:1,bs:3,range:8,ap:1,dmg:2,abilities:['heavy']},
+  sniper_rifle:   {name:'Rifle Precisión', atk:1,bs:3,range:8,ap:2,dmg:2,abilities:['heavy','precision']},
   spotter_pistol: {name:'Pistola Obs.',    atk:1,bs:5,range:2,ap:0,dmg:1,abilities:[]},
-  medic_rifle:    {name:'Rifle Escolta',   atk:1,bs:4,range:4,ap:0,dmg:1,abilities:[]},
   at_launcher:    {name:'Lanzacohetes AT', atk:1,bs:4,range:4,ap:3,dmg:3,abilities:['anti_vehicle','hazardous']},
   tank_cannon:    {name:'Cañón Principal', atk:2,bs:3,range:8,ap:4,dmg:4,abilities:['blast','single_shot']},
   coax_mg:        {name:'AM Coaxial',      atk:3,bs:4,range:4,ap:1,dmg:1,abilities:['rapid_fire']},
   hmg:            {name:'Ametralladora',   atk:4,bs:4,range:6,ap:1,dmg:1,abilities:['heavy','suppression']},
   apc_gun:        {name:'Cañón APC',       atk:2,bs:4,range:5,ap:2,dmg:2,abilities:[]},
-  jeep_mg:        {name:'AM Jeep',         atk:2,bs:4,range:4,ap:0,dmg:1,abilities:['rapid_fire']},
+  jeep_mg:        {name:'AM .50 cal',      atk:3,bs:4,range:5,ap:1,dmg:1,abilities:['rapid_fire','suppression']},
   rocket_pod:     {name:'Pod Cohetes',     atk:4,bs:4,range:6,ap:3,dmg:2,abilities:['blast']},
   minigun:        {name:'Minigun',         atk:5,bs:4,range:4,ap:1,dmg:1,abilities:['rapid_fire','suppression']},
   heal_kit:       {name:'Kit Médico',      atk:0,bs:4,range:2,ap:0,dmg:-2,abilities:['heal']},
@@ -251,7 +604,7 @@ var UNIT_DEFS = {
     maxMen:4,hpPerMan:2,move:4,ap:2,icon:'✚',
     tags:['infantry','healer'],
     saves:{none:6,light:6,medium:5,high:4},
-    weaponGroups:[{count:2,weapon:'medic_rifle',label:'2× Rifle Escolta'},{count:2,weapon:'smg',label:'2× Subfusil'}],
+    weaponGroups:[{count:2,weapon:'assault_rifle',label:'2× Rifle Asalto'},{count:2,weapon:'smg',label:'2× Subfusil'}],
     healDice:2,healRange:2,
     desc:'2 escoltas + 2 médicos. Cura aliados.'},
   antitank:  {name:'Eq. Antitanque', abbr:'AT',  cost:150,grade:'average',
@@ -265,7 +618,7 @@ var UNIT_DEFS = {
     tags:['infantry'],
     saves:{none:6,light:5,medium:5,high:4},
     weaponGroups:[{count:1,weapon:'sniper_rifle',label:'1× Rifle Precisión'},{count:1,weapon:'spotter_pistol',label:'1× Pistola Obs.'}],
-    desc:'Tirador + observador. Heavy: +1 dado sin mover.'},
+    desc:'Precisión: BS:3+ sin mover. Bonus a distancia larga. Peor si se mueve.'},
   tank:      {name:'Tanque',         abbr:'TANK', cost:300,grade:'good',
     maxMen:1,hpPerMan:10,move:2,ap:2,icon:'◆',
     tags:['vehicle','heavy'],
@@ -316,17 +669,16 @@ var OBJECTIVES = {
     lose:function(){ return G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length===0; }
   },
   capture: {
-    label:'Capturar y mantener el centro 3 turnos',
+    label:'Mantener la zona central 5 rondas completas sin enemigos',
+    // check() and lose() only READ the counters — never write them.
+    // Counters are updated once per complete round in evaluateCaptureZone().
     check:function(){
-      var h=G.objData.captureHex;
-      if(!h) return false;
-      var ally=G.units.filter(function(u){return u.team==='ally'&&u.hp>0&&u.c===h.c&&u.r===h.r;}).length>0;
-      var enemy=G.units.filter(function(u){return u.team==='enemy'&&u.hp>0&&u.c===h.c&&u.r===h.r;}).length>0;
-      if(ally&&!enemy){ G.objData.captureTurns=(G.objData.captureTurns||0)+1; }
-      else { G.objData.captureTurns=0; }
-      return G.objData.captureTurns>=3;
+      return (G.objData.captureTurns||0)>=5;
     },
-    lose:function(){ return G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length===0; }
+    lose:function(){
+      if((G.objData.enemyCaptureTurns||0)>=5) return true;
+      return G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length===0;
+    }
   },
   survive: {
     label:'Sobrevivir 10 rondas',
@@ -772,12 +1124,50 @@ function renderGame() {
 
   drawBaseMap(ctx,sc);
 
-  // Objective hex (capture)
+  // Objective zone (capture — radius 2 around center)
   if(G.currentObjective==='capture'&&G.objData.captureHex){
-    var oh=G.objData.captureHex, op=hexToPixel(oh.c,oh.r);
-    ctx.strokeStyle='rgba(255,200,40,.7)'; ctx.lineWidth=2.5; ctx.setLineDash([4,3]);
+    var oh=G.objData.captureHex;
+    var allyT=G.objData.captureTurns||0;
+    var enemyT=G.objData.enemyCaptureTurns||0;
+    var whoHolds='none';
+    var radius2=2;
+    var aInZ=G.units.filter(function(u){return u.team==='ally'&&u.hp>0&&hexDist(u.c,u.r,oh.c,oh.r)<=radius2;}).length>0;
+    var eInZ=G.units.filter(function(u){return u.team==='enemy'&&u.hp>0&&hexDist(u.c,u.r,oh.c,oh.r)<=radius2;}).length>0;
+    if(aInZ&&!eInZ) whoHolds='ally';
+    else if(eInZ&&!aInZ) whoHolds='enemy';
+    else if(aInZ&&eInZ) whoHolds='contested';
+
+    // Zone fill color: yellow=ally progress, red=enemy progress, grey=neutral
+    var capColor=whoHolds==='ally'?'rgba(255,200,40,':whoHolds==='enemy'?'rgba(220,60,60,':'rgba(120,120,120,';
+    var progress=whoHolds==='ally'?allyT/5:whoHolds==='enemy'?enemyT/5:0;
+    for(var dr=-radius2;dr<=radius2;dr++) for(var dc=-radius2;dc<=radius2;dc++){
+      if(hexDist(oh.c,oh.r,oh.c+dc,oh.r+dr)>radius2) continue;
+      var nc2=oh.c+dc, nr2=oh.r+dr;
+      if(nc2<0||nr2<0||nc2>=sc.cols||nr2>=sc.rows) continue;
+      var zp=hexToPixel(nc2,nr2);
+      ctx.fillStyle=capColor+(0.05+progress*0.14)+')';
+      drawHex(ctx,zp.x,zp.y,TILE-2); ctx.fill();
+    }
+    // Center marker border
+    var op=hexToPixel(oh.c,oh.r);
+    ctx.strokeStyle=capColor+'0.85)'; ctx.lineWidth=3; ctx.setLineDash([5,3]);
     drawHex(ctx,op.x,op.y,TILE-2); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle='rgba(255,200,40,.08)'; drawHex(ctx,op.x,op.y,TILE-2); ctx.fill();
+    // Counter label
+    var labelTurns=whoHolds==='ally'?allyT:whoHolds==='enemy'?enemyT:0;
+    var labelMax=5;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='bold '+(TILE*0.38)+'px monospace';
+    if(whoHolds==='contested'){
+      ctx.fillStyle='rgba(255,160,0,.95)';
+      ctx.fillText('⚡',op.x,op.y);
+    } else if(labelTurns>0){
+      ctx.fillStyle=whoHolds==='ally'?'rgba(255,220,60,.95)':'rgba(255,100,100,.95)';
+      ctx.fillText(labelTurns+'/'+labelMax,op.x,op.y);
+    } else {
+      ctx.fillStyle='rgba(200,200,200,.5)';
+      ctx.font='bold '+(TILE*0.28)+'px monospace';
+      ctx.fillText('0/5',op.x,op.y);
+    }
   }
 
   // Move tiles
@@ -974,6 +1364,28 @@ function resolveWeapon(attacker, target, wg) {
 
   // Weapon abilities
   if(w.abilities.indexOf('heavy')>=0&&!attacker.moved){numDice++;mods.push({txt:'Heavy: +1d (no movió)',cls:'mod-g'});}
+  // Precision: sniper bonus scales with distance AND requires stationary
+  // At rest: base BS improves. The farther the target (beyond half range), better accuracy.
+  // hitThr already declared below — we store a modifier here first
+  var precisionMod=0;
+  if(w.abilities.indexOf('precision')>=0){
+    if(attacker.moved){
+      // Moving sniper loses precision entirely: +1 to hit threshold (harder)
+      precisionMod=+1;
+      mods.push({txt:'Precisión: movió (+1 dificultad)',cls:'mod-b'});
+    } else {
+      // Stationary: base bonus already from BS:3. Check distance bonus.
+      var halfRange=Math.floor(w.range/2); // 4 hexes
+      if(dist>halfRange){
+        // Every 2 hexes beyond half range = -1 to hit threshold (easier), max -2
+        var rangeBonus=Math.min(2,Math.floor((dist-halfRange)/2));
+        if(rangeBonus>0){
+          precisionMod=-rangeBonus;
+          mods.push({txt:'Precisión a distancia: -'+rangeBonus+' dificultad',cls:'mod-g'});
+        }
+      }
+    }
+  }
   if(w.abilities.indexOf('rapid_fire')>=0&&dist<=Math.floor(w.range/2)){numDice*=2;mods.push({txt:'Rapid Fire ×2',cls:'mod-g'});}
   if(w.abilities.indexOf('blast')>=0&&target.menAlive>2){var b=Math.floor(target.menAlive/3);numDice+=b;mods.push({txt:'Blast +'+b+'d',cls:'mod-g'});}
   if(!isDefVeh&&coverInfo.type==='light'){numDice=Math.max(1,numDice-1);mods.push({txt:'Cob.Ligera -1d',cls:'mod-b'});}
@@ -987,7 +1399,7 @@ function resolveWeapon(attacker, target, wg) {
   }
 
   // Hit roll
-  var hitThr=w.bs+(grade.woundMod<0?1:0);
+  var hitThr=Math.min(6,Math.max(2, w.bs+(grade.woundMod<0?1:0)+precisionMod));
   var atkRolls=rollDice(numDice);
   var hits=atkRolls.filter(function(d){return d>=hitThr;}).length;
   if(w.abilities.indexOf('sustained_hits')>=0){var sh=atkRolls.filter(function(d){return d===6;}).length;if(sh>0){hits+=sh;mods.push({txt:'Sustained +'+sh,cls:'mod-g'});}}
@@ -1093,8 +1505,9 @@ function confirmWeaponSelect() {
   var totalNet=results.reduce(function(s,r){return s+(r.net||0);},0);
   att.acted=true; att.ap=Math.max(0,att.ap-1);
   applyWounds(tgt,totalNet);
+  if(totalNet>0){ var isVehTgt=tgt.tags.indexOf('vehicle')>=0; isVehTgt?SFX.explosion():SFX.rifle(); }
   if(totalNet>0) addLog('💥 '+att.name+'→'+tgt.name+': '+totalNet+' daño ('+tgt.hp+'/'+tgt.maxHp+' HP)','hit');
-  else addLog('○ '+att.name+'→'+tgt.name+': sin efecto','miss');
+  else{ SFX.miss(); addLog('○ '+att.name+'→'+tgt.name+': sin efecto','miss'); }
   if(tgt.hp<=0) addLog('💀 '+tgt.name+' ELIMINADO!','hit');
   showDiceResults(att.name+'→'+tgt.name, results, function(){
     G_target=null; G.attackTiles=[];
@@ -1106,6 +1519,7 @@ function confirmWeaponSelect() {
 /* CLOSE ASSAULT (RFIC-inspired) */
 function performCloseAssault(attacker, target) {
   addLog('⚔ ASALTO: '+attacker.name+' vs '+target.name,'hit');
+  SFX.assault();
   var isAVeh=attacker.tags.indexOf('vehicle')>=0;
   var isDVeh=target.tags.indexOf('vehicle')>=0;
   var aDice=isAVeh?4:attacker.menAlive;
@@ -1206,7 +1620,7 @@ function performSuppression(attacker, target) {
   if(success){
     target.suppressed=true;
     target.suppressMarkers=Math.min(3,(target.suppressMarkers||0)+1);
-    addLog('⚡ '+attacker.name+' SUPRIME a '+target.name,'supp');
+    SFX.suppress(); addLog('⚡ '+attacker.name+' SUPRIME a '+target.name,'supp');
   } else {
     addLog('○ '+attacker.name+' intenta suprimir a '+target.name+': fallido','miss');
   }
@@ -1228,6 +1642,8 @@ function checkVictory() {
 }
 
 function showVictory(won) {
+  stopAllMusic();
+  setTimeout(function(){ won?SFX.victory():SFX.defeat(); }, 300);
   document.getElementById('vic-result').textContent=won?'VICTORIA':'DERROTA';
   document.getElementById('vic-result').className='vic-result '+(won?'vic-won':'vic-lost');
   var a=G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length;
@@ -1241,85 +1657,152 @@ function showVictory(won) {
 /* ═══════════════════════════════════════════════════════════════
    SECTION 14: AI
    ═══════════════════════════════════════════════════════════════ */
-// ── AI FORCE COMPOSER ─────────────────────────────────────────────────
-// Builds optimal enemy force based on budget and scenario objective
+// ══ AI FORCE COMPOSER ══════════════════════════════════════════════════
+// Reads player's force, counter-builds, distributes across full spawn zone
+
+function analyzeAllyForce() {
+  var force={
+    totalCost:0, unitCount:0,
+    hasArmor:false, hasHeli:false, hasMedic:false,
+    hasAT:false, hasSniper:false, hasTransport:false,
+    infantryCount:0, vehicleCount:0,
+    units: G.deployedUnits.map(function(u){return u.key;})
+  };
+  G.deployedUnits.forEach(function(u){
+    var def=UNIT_DEFS[u.key];
+    force.totalCost+=def.cost; force.unitCount++;
+    if(u.tags.indexOf('vehicle')>=0) force.vehicleCount++;
+    else force.infantryCount++;
+    if(u.key==='tank'||u.key==='apc')     force.hasArmor=true;
+    if(u.key==='attack_heli'||u.key==='transport_heli') force.hasHeli=true;
+    if(u.key==='medics')   force.hasMedic=true;
+    if(u.key==='antitank') force.hasAT=true;
+    if(u.key==='sniper')   force.hasSniper=true;
+    if(u.key==='transport_heli') force.hasTransport=true;
+  });
+  return force;
+}
+
 function generateEnemyForce(budget) {
-  // Composition templates by role (priority order)
-  var COMPOSITIONS = [
-    // Backbone: always include
-    {key:'riflemen', maxCount:6, grade:'average', priority:1},
-    // Armor
-    {key:'tank',     maxCount:2, grade:'good',    priority:2},
-    {key:'apc',      maxCount:2, grade:'average', priority:3},
-    // Fire support
-    {key:'antitank', maxCount:3, grade:'average', priority:4},
-    {key:'attack_heli',maxCount:2,grade:'good',   priority:5},
-    // Specialists
-    {key:'sniper',   maxCount:3, grade:'good',    priority:6},
-    {key:'jeep',     maxCount:2, grade:'average', priority:7},
-    {key:'transport_heli',maxCount:1,grade:'average',priority:8},
-  ];
-
-  var units=[], points=0, spawnIdx=0;
+  var units=[], points=0;
   var spawnPts=G.scenario.spawnEnemy;
+  var obj=G.currentObjective;
+  var ally=analyzeAllyForce();
 
-  // First pass: build balanced force
-  // Spend 60% on backbone, 40% on specialists/armor
-  var backboneBudget = Math.floor(budget * 0.55);
-  var specialBudget  = budget - backboneBudget;
+  // ── COUNTER-BUILD POOL (responds to ally force) ─────────────────────
+  var pool=[];
+
+  // Always: medic support
+  pool.push({key:'medics',grade:'average',priority:1});
+
+  // Counter ally vehicles with AT units
+  if(ally.hasArmor||ally.vehicleCount>0){
+    pool.push({key:'antitank',grade:'average',priority:2});
+    pool.push({key:'antitank',grade:'average',priority:3});
+    pool.push({key:'tank',grade:'good',priority:4});
+  }
+
+  // Counter ally helis with attack helis
+  if(ally.hasHeli){
+    pool.push({key:'attack_heli',grade:'good',priority:2});
+  }
+
+  // Counter sniper with sniper
+  if(ally.hasSniper){
+    pool.push({key:'sniper',grade:'good',priority:5});
+    pool.push({key:'sniper',grade:'good',priority:6});
+  }
+
+  // Match ally medic with own medic
+  if(ally.hasMedic){
+    pool.push({key:'medics',grade:'average',priority:3});
+  }
+
+  // Mission-specific additions
+  if(obj==='capture'||obj==='survive'){
+    // Defensive: more infantry + transport for rapid redeployment
+    pool.push({key:'riflemen',grade:'average',priority:2});
+    pool.push({key:'riflemen',grade:'average',priority:2});
+    pool.push({key:'riflemen',grade:'average',priority:3});
+    pool.push({key:'apc',grade:'average',priority:4});
+    pool.push({key:'transport_heli',grade:'average',priority:5});
+  } else {
+    // Assault: armor + assault infantry
+    pool.push({key:'tank',grade:'good',priority:2});
+    pool.push({key:'apc',grade:'average',priority:3});
+    pool.push({key:'attack_heli',grade:'good',priority:4});
+    pool.push({key:'jeep',grade:'average',priority:5});
+  }
+
+  // Backbone riflemen
+  for(var i=0;i<8;i++) pool.push({key:'riflemen',grade:'average',priority:7});
+  pool.push({key:'medics',grade:'average',priority:6});
+
+  // Sort by priority
+  pool.sort(function(a,b){return a.priority-b.priority;});
+
+  // Deduplicate to reasonable max counts
+  var counts={};
+  var maxCounts={tank:3,apc:2,attack_heli:2,transport_heli:1,
+    antitank:3,sniper:3,medics:2,riflemen:99,jeep:2};
+  pool=pool.filter(function(entry){
+    counts[entry.key]=(counts[entry.key]||0)+1;
+    return counts[entry.key]<=(maxCounts[entry.key]||2);
+  });
+
+  // ── SPAWN DISTRIBUTION across entire zone ───────────────────────────
+  // Shuffle spawn points so units spread across the whole zone, not just top
+  var shuffledSpawn=spawnPts.slice().sort(function(){return Math.random()-0.5;});
+  var spawnIdx=0;
 
   function addUnit(key, grade) {
-    if(spawnIdx>=spawnPts.length) return false;
+    if(spawnIdx>=shuffledSpawn.length) return false;
     var def=UNIT_DEFS[key];
-    var sp=spawnPts[spawnIdx];
+    if(!def) return false;
+    var sp=shuffledSpawn[spawnIdx];
     var u=createUnit(key,'enemy',sp.c,sp.r);
     u.grade=grade;
     units.push(u); spawnIdx++;
     return true;
   }
 
-  // Backbone: riflemen fill backbone budget
-  var rfCost=UNIT_DEFS['riflemen'].cost;
-  var rfCount=Math.min(6, Math.floor(backboneBudget/rfCost));
-  for(var i=0;i<rfCount;i++){
-    if(points+rfCost>budget) break;
-    addUnit('riflemen','average'); points+=rfCost;
-  }
-
-  // Special units: spend remainder
-  var specialPool=[
-    {key:'tank',grade:'good'},{key:'apc',grade:'average'},
-    {key:'medics',grade:'average'},           // enemy gets medics too
-    {key:'antitank',grade:'average'},{key:'attack_heli',grade:'good'},
-    {key:'sniper',grade:'good'},{key:'jeep',grade:'average'},
-    {key:'medics',grade:'average'},           // second medic for large maps
-    {key:'transport_heli',grade:'average'},{key:'riflemen',grade:'average'}
-  ];
-  // Add snipers for priority targeting
-  specialPool.forEach(function(entry){
+  // Build from pool until budget exhausted
+  pool.forEach(function(entry){
     var def=UNIT_DEFS[entry.key];
-    if(points+def.cost<=budget && spawnIdx<spawnPts.length){
-      addUnit(entry.key,entry.grade); points+=def.cost;
-    }
+    if(!def||points+def.cost>budget) return;
+    if(addUnit(entry.key,entry.grade)) points+=def.cost;
   });
 
   // Fill remaining budget with riflemen
-  while(points+rfCost<=budget && spawnIdx<spawnPts.length){
-    addUnit('riflemen','average'); points+=rfCost;
+  var rfCost=UNIT_DEFS['riflemen'].cost;
+  while(points+rfCost<=budget&&spawnIdx<shuffledSpawn.length){
+    if(addUnit('riflemen','average')) points+=rfCost;
+    else break;
   }
 
-  // Assign AI roles to units
+  // ── ROLE ASSIGNMENT ─────────────────────────────────────────────────
+  var assaultCount=0, total=units.length;
   units.forEach(function(u,i){
-    if(u.key==='medics')     u.aiRole='medic';
+    if(u.key==='medics')      u.aiRole='medic';
     else if(u.key==='tank'||u.key==='apc') u.aiRole='armor';
     else if(u.key==='sniper') u.aiRole='sniper';
     else if(u.key==='antitank') u.aiRole='at_hunter';
     else if(u.key==='attack_heli'||u.key==='transport_heli') u.aiRole='air';
-    else if(i<Math.floor(units.length/2)) u.aiRole='assault';
-    else u.aiRole='flank';
+    else {
+      // Split infantry: 50% assault, 50% flank for eliminate
+      // For capture/survive: more defenders
+      if(obj==='capture'||obj==='survive'){
+        u.aiRole=assaultCount<Math.floor(total*0.3)?'assault':'flank';
+      } else {
+        u.aiRole=assaultCount<Math.floor(total*0.5)?'assault':'flank';
+      }
+      assaultCount++;
+    }
+    // Mission mindset tag
+    u.missionMind=obj;
   });
 
-  addLog('Enemigo desplegó '+units.length+' unidades ('+points+' pts)','sys');
+  addLog('IA contrarrestó con '+units.length+' unidades ('+points+' pts) vs tu ejército de '+ally.unitCount,'sys');
   return units;
 }
 
@@ -1372,12 +1855,26 @@ function aiTargetScore(attacker, target) {
     if(target.tags.indexOf('heavy')>=0) score-=100;
   }
   if(attacker.aiRole==='flank'){
-    // Flankers love isolated targets and medics caught out of position
     if(target.key==='medics') score+=100;
     var nearAllies=G.units.filter(function(u){
       return u.team==='ally'&&u.hp>0&&hexDist(u.c,u.r,target.c,target.r)<=2&&u.id!==target.id;
     }).length;
-    score -= nearAllies*15; // prefer isolated targets
+    score -= nearAllies*15;
+  }
+
+  // ── Mission-specific target bonuses ─────────────────────────────────
+  var mission=attacker.missionMind||G.currentObjective||'eliminate_all';
+  if(mission==='capture'){
+    // In capture mode: prioritize targets inside the capture zone
+    var ch=G.objData.captureHex;
+    if(ch&&hexDist(target.c,target.r,ch.c,ch.r)<=2) score+=100;
+  } else if(mission==='survive'){
+    // In survive mode: focus the most dangerous attackers (highest damage potential)
+    if(target.key==='tank'||target.key==='attack_heli') score+=120;
+    // Kill units that are approaching spawn
+    var spawnC=aiGetEnemySpawnCenter();
+    var dToSpawn=hexDist(target.c,target.r,spawnC.c,spawnC.r);
+    if(dToSpawn<10) score+=80;
   }
 
   return score;
@@ -1411,6 +1908,36 @@ function aiMoveScore(e, pos, target) {
   var score=0;
   var sc=G.scenario;
   var dist=hexDist(pos.c,pos.r,target.c,target.r);
+  var mission=e.missionMind||G.currentObjective||'eliminate_all';
+
+  // ── Mission mindset overlay ──────────────────────────────────────────
+  if(mission==='capture'){
+    // Capture: all units want to be near the center zone
+    var ch=G.objData.captureHex;
+    if(ch){
+      var dCenter=hexDist(pos.c,pos.r,ch.c,ch.r);
+      if(e.aiRole==='assault'||e.aiRole==='armor'){
+        score -= dCenter*14; // rush to center
+      } else if(e.aiRole==='flank'){
+        // Flankers approach center from the sides
+        score -= dCenter*8;
+        var allyC=aiGetAllyCenter();
+        score += Math.abs(pos.r-allyC.r)*3;
+      }
+      // Snipers cover center from perimeter
+      if(e.aiRole==='sniper'){
+        score -= Math.max(0,dCenter-4)*10; // want to be 2-4 hexes from center
+        score += Math.max(0,4-dCenter)*8;
+      }
+    }
+  } else if(mission==='survive'){
+    // Survive: defensive — stay near own spawn, create kill zone
+    var spawnCenter=aiGetEnemySpawnCenter();
+    var dSpawn=hexDist(pos.c,pos.r,spawnCenter.c,spawnCenter.r);
+    score -= dSpawn*6; // stay close to spawn = defensive perimeter
+    score += dist*4;   // keep distance from enemy
+  }
+  // eliminate_all / eliminate_75: default aggressive (handled by role)
 
   // ── Role-based distance preference ──────────────────────────────────
   if(e.key==='medics'){
@@ -1479,6 +2006,13 @@ function aiGetAllyCenter() {
   return {c:Math.round(sc.c/allies.length),r:Math.round(sc.r/allies.length)};
 }
 
+function aiGetEnemySpawnCenter() {
+  var sp=G.scenario.spawnEnemy;
+  if(!sp||!sp.length) return {c:G.scenario.cols-5,r:G.scenario.rows/2};
+  var sc=sp.reduce(function(s,p){return {c:s.c+p.c,r:s.r+p.r};},{c:0,r:0});
+  return {c:Math.round(sc.c/sp.length),r:Math.round(sc.r/sp.length)};
+}
+
 // AI deploys squad from APC/transport_heli
 function aiTryDeploy(e) {
   if(e.deploysLeft<=0||e.deployTimer>0) return false;
@@ -1508,6 +2042,22 @@ function aiActUnit(e) {
 
   // Find best attack target
   var target=aiBestTarget(e);
+
+  // Jeep: try suppression first if target is infantry and in range
+  if(e.key==='jeep'&&target&&!e.acted){
+    var jeepSupp=e.weaponGroups.find(function(wg){
+      return WEAPONS[wg.weapon].abilities.indexOf('suppression')>=0;
+    });
+    if(jeepSupp&&!target.suppressed&&hexDist(e.c,e.r,target.c,target.r)<=WEAPONS[jeepSupp.weapon].range){
+      var suppRoll=Math.random()<(4/6); // ~67% chance to apply suppression from 3 dice
+      if(suppRoll){
+        target.suppressed=true;
+        target.suppressMarkers=Math.min(3,(target.suppressMarkers||0)+1);
+        addLog('⚡ Jeep suprime a '+target.name+' con AM .50 cal','supp');
+        e.acted=true; e.ap=Math.max(0,e.ap-1);
+      }
+    }
+  }
 
   // Attack if possible
   if(target&&!e.acted){
@@ -1586,6 +2136,7 @@ function runAI() {
    ═══════════════════════════════════════════════════════════════ */
 function endTurn() {
   if(G.turn!=='ally') return;
+  SFX.turn_end();
   G.turn='enemy';
   G.selected=null; G.moveTiles=[]; G.attackTiles=[]; G.mode='select';
   addLog('--- Fin turno ALIADOS ---','sys');
@@ -1617,7 +2168,7 @@ function performDeploy(carrier) {
   carrier.deploysLeft--;
   carrier.deployTimer=3; // cooldown 3 turns
   carrier.acted=true; carrier.ap=Math.max(0,carrier.ap-1);
-  addLog('⬇ '+carrier.name+' desplegó Fusileros en ('+sp.c+','+sp.r+') — quedan '+carrier.deploysLeft+' despliegues','heal');
+  SFX.deploy(); addLog('⬇ '+carrier.name+' desplegó Fusileros en ('+sp.c+','+sp.r+') — quedan '+carrier.deploysLeft+' despliegues','heal');
   updateFog(); updateGameUI(); renderGame();
 }
 
@@ -1628,6 +2179,44 @@ function tickDeployTimers() {
     if(u.deployTimer===0&&u.deploysLeft>0)
       addLog('🔔 '+u.name+' listo para desplegar refuerzos','heal');
   });
+}
+
+
+// ── Capture zone evaluation — called once per complete round ───────────
+// Only runs when objective is 'capture'. Checks who held the zone
+// at the end of the just-completed round (ally + enemy turns done).
+function evaluateCaptureZone() {
+  if(G.currentObjective!=='capture') return;
+  var h=G.objData.captureHex;
+  if(!h) return;
+  var radius=2;
+
+  var allyInZone=G.units.filter(function(u){
+    return u.team==='ally'&&u.hp>0&&hexDist(u.c,u.r,h.c,h.r)<=radius;
+  }).length>0;
+
+  var enemyInZone=G.units.filter(function(u){
+    return u.team==='enemy'&&u.hp>0&&hexDist(u.c,u.r,h.c,h.r)<=radius;
+  }).length>0;
+
+  // Only count a round if at least one side is in the zone
+  if(!allyInZone&&!enemyInZone) return;
+
+  if(allyInZone&&!enemyInZone){
+    G.objData.captureTurns=(G.objData.captureTurns||0)+1;
+    G.objData.enemyCaptureTurns=0;
+    addLog('🏴 Zona controlada por ALIADOS: '+G.objData.captureTurns+'/5 rondas','heal');
+  } else if(enemyInZone&&!allyInZone){
+    G.objData.enemyCaptureTurns=(G.objData.enemyCaptureTurns||0)+1;
+    G.objData.captureTurns=0;
+    addLog('⚠ Zona controlada por ENEMIGOS: '+G.objData.enemyCaptureTurns+'/5 rondas','sys');
+  } else {
+    // Contested — reset both, no progress
+    if(G.objData.captureTurns>0||G.objData.enemyCaptureTurns>0)
+      addLog('⚡ Zona EN DISPUTA — progreso reiniciado','sys');
+    G.objData.captureTurns=0;
+    G.objData.enemyCaptureTurns=0;
+  }
 }
 
 function startAllyTurn() {
@@ -1685,7 +2274,7 @@ function startAllyTurn() {
         +' cura '+healed+' HP a '+target.name
         +' ('+before+'→'+target.hp+'/'+target.maxHp+' HP)'
         +(amount===2?' ¡CURACIÓN DOBLE! (25%)':'');
-      addLog(msg,'heal');
+      SFX.heal(); addLog(msg,'heal');
     }
   });
 
@@ -1716,6 +2305,9 @@ function startAllyTurn() {
   });
   // Check objective
   if(G.currentObjective==='capture') checkVictory();
+  // Evaluate capture zone once per complete round (round just ended)
+  evaluateCaptureZone();
+  if(checkVictory()) return; // win/lose condition from capture
   addLog('=== RONDA '+G.round+' — TURNO ALIADOS ===','sys');
   updateFog(); updateGameUI(); renderGame();
 }
@@ -1842,6 +2434,7 @@ function updateGameUI(){
 }
 
 function selectUnit(u){
+  SFX.select();
   G.selected=u; G.mode='selected';
   G.moveTiles=!u.moved?getMoves(u):[];
   G.attackTiles=!u.acted?getAttackTiles(u):[];
@@ -1892,7 +2485,7 @@ function renderRoster(){
       +'<div class="uc-desc">'+def.desc+'</div>'
       +'<div class="uc-tags">MOV:'+def.move+' HP:'+def.maxMen+'×'+def.hpPerMan+' AP:'+def.ap+'</div>'
       +'<div class="uc-tags grade-'+(def.grade==='good'?'good':def.grade==='poor'?'poor':'avg')+'">'+gdef.label+'</div>';
-    if(!disabled) card.addEventListener('click',function(){
+    if(!disabled) card.addEventListener('click',function(){ SFX.click();
       selectedRosterKey=key; renderRoster();
       document.getElementById('deploy-hint').textContent='① Seleccionado: '+def.name+' — toca zona VERDE';
     });
@@ -1924,6 +2517,7 @@ function updateDeployUI(){
    SECTION 17: SCREEN FLOWS
    ═══════════════════════════════════════════════════════════════ */
 function initSceneSelect(){
+  playMusicTrack('menu');
   var grid=document.getElementById('scene-grid');
   grid.innerHTML='';
   Object.keys(ROOM_DEFS).forEach(function(key){
@@ -1934,13 +2528,14 @@ function initSceneSelect(){
       +'<div class="scene-name">'+rd.name+'</div>'
       +'<div class="scene-desc">'+rd.desc+'</div>'
       +'<div class="scene-obj">🎯 '+(obj?obj.label:'')+'</div>';
-    card.addEventListener('click',function(){ startDeploy(key); });
+    card.addEventListener('click',function(){ SFX.click(); startDeploy(key); });
     grid.appendChild(card);
   });
   showScreen('scene');
 }
 
 function startDeploy(roomKey){
+  playMusicTrack('deploy');
   G.scenario=buildMap(roomKey);
   G.deployedUnits=[]; G.pointsLeft=STARTING_POINTS;
   selectedRosterKey=null;
@@ -1956,6 +2551,7 @@ function startDeploy(roomKey){
 function startBattle(){
   if(G.deployedUnits.length===0){alert('Despliega al menos una unidad!');return;}
   showScreen('game');
+  playMusicTrack('battle');
   var budget=Math.min(STARTING_POINTS,150+G.deployedUnits.reduce(function(s,u){return s+UNIT_DEFS[u.key].cost;},0)*0.8);
   G.units=G.deployedUnits.concat(generateEnemyForce(budget));
   G.turn='ally'; G.round=1; G.selected=null; G.mode='select';
@@ -2103,6 +2699,7 @@ function handleMapTap(mc,mr){
       G.selected.c=mc; G.selected.r=mr; G.selected.moved=true;
       G.selected.ap=Math.max(0,G.selected.ap-1);
       addLog('▶ '+G.selected.name+' → ('+mc+','+mr+')','move');
+      SFX.move();
       updateFog(); G.moveTiles=[];
       if(!G.selected.acted) G.attackTiles=getAttackTiles(G.selected);
       G.mode='selected';
@@ -2202,6 +2799,7 @@ document.getElementById('btn-clear-deploy').addEventListener('click',function(){
 
 // ── Scene select button ───────────────────────────────────────
 document.getElementById('btn-start-mission').addEventListener('click',initSceneSelect);
+document.getElementById('btn-audio-toggle').addEventListener('click',toggleAudio);
 
 // ── Resize ───────────────────────────────────────────────────
 window.addEventListener('resize',function(){
