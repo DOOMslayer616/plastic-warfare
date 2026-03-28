@@ -3267,6 +3267,7 @@ function mpCreate() {
 
   MP.peer.on('connection', function(conn) {
     MP.conn = conn;
+    MP.ready = true;
     mpSetupConn();
     mpStatus('¡Oponente conectado! Configurando partida…','var(--green3)');
     SFX.deploy();
@@ -3281,41 +3282,69 @@ function mpCreate() {
 
 // ── JOIN (GUEST) ──────────────────────────────────────────────────────
 function mpJoin() {
-  var code = document.getElementById('mp-join-input').value.trim().toUpperCase();
-  if(!code || code.length < 4){ mpStatus('Ingresa un código válido','var(--red3)'); return; }
-  mpStatus('Conectando a '+code+'…','var(--amber3)');
+  var code = document.getElementById('mp-join-input').value.trim();
+  if(!code || code.length < 6){ mpStatus('Ingresa un ID válido','var(--red3)'); return; }
+  mpStatus('Iniciando conexión…','var(--amber3)');
   MP.role = 'guest';
   MP.myTeam = 'enemy';
   MP.oppTeam = 'ally';
 
-  MP.peer = new Peer();
-  MP.peer.on('open', function() {
-    MP.conn = MP.peer.connect(code, {reliable:true});
-    mpSetupConn();
-    mpStatus('Conectando…','var(--amber3)');
+  // Destroy previous peer if any
+  if(MP.peer){ try{MP.peer.destroy();}catch(e){} }
+
+  MP.peer = new Peer(); // guest gets a random ID
+
+  MP.peer.on('open', function(myId) {
+    mpStatus('Conectando con host ('+code.slice(0,8)+'…)','var(--amber3)');
+    MP.conn = MP.peer.connect(code, {reliable:true, serialization:'json'});
+
+    // Connection timeout check
+    var timeout = setTimeout(function(){
+      if(!MP.ready) mpStatus('Tiempo de espera agotado. ¿Es correcto el ID?','var(--red3)');
+    }, 12000);
+
+    MP.conn.on('open', function() {
+      clearTimeout(timeout);
+      MP.ready = true;
+      mpStatus('¡Conectado! Esperando al host…','var(--green3)');
+      SFX.deploy();
+    });
+    MP.conn.on('data', function(data){ mpHandleData(data); });
+    MP.conn.on('close', function(){
+      mpStatus('Conexión cerrada','var(--red3)');
+      if(G.scenario) addLog('⚠ Conexión perdida','sys');
+    });
+    MP.conn.on('error', function(e){
+      clearTimeout(timeout);
+      mpStatus('Error de conexión: '+e,'var(--red3)');
+    });
   });
+
   MP.peer.on('error', function(e) {
-    mpStatus('No se pudo conectar. Verifica el código.','var(--red3)');
+    console.error('PeerJS error:', e);
+    if(e.type==='peer-unavailable')
+      mpStatus('Host no encontrado. Verifica el ID.','var(--red3)');
+    else if(e.type==='network')
+      mpStatus('Error de red. Revisa tu conexión.','var(--red3)');
+    else
+      mpStatus('Error: '+e.type,'var(--red3)');
   });
 }
 
 // ── CONNECTION HANDLERS ───────────────────────────────────────────────
 function mpSetupConn() {
+  // Used by HOST when a guest connects inbound
   var c = MP.conn;
   c.on('open', function() {
     MP.ready = true;
-    mpStatus('¡Conectado!','var(--green3)');
-    if(MP.role === 'guest') {
-      mpStatus('Esperando que el host elija escenario…','var(--amber3)');
-    }
+    mpStatus('¡Oponente listo!','var(--green3)');
   });
-  c.on('data', function(data) {
-    mpHandleData(data);
-  });
+  c.on('data', function(data) { mpHandleData(data); });
   c.on('close', function() {
     mpStatus('Conexión perdida','var(--red3)');
     if(G.scenario) addLog('⚠ Conexión con oponente perdida','sys');
   });
+  c.on('error', function(e){ mpStatus('Error conn: '+e,'var(--red3)'); });
 }
 
 // ── SEND ──────────────────────────────────────────────────────────────
