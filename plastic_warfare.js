@@ -566,6 +566,29 @@ function getCoverInfo(ac,ar,dc,dr,isDefVeh) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   FACTIONS
+   ═══════════════════════════════════════════════════════════════ */
+var FACTIONS = {
+  ally: {
+    id:'ally', key:'ugn',
+    name:'United Green Nations', short:'UGN',
+    icon:'🌿', color:'#4a8a38', colorLight:'#6acd4a',
+    teamLabel:'UGN', spawnLabel:'Territorio UGN',
+    logIcon:'🌿', vicMsg:'¡UNITED GREEN NATIONS VICTORIOSA!',
+    defeatMsg:'UGN ha sido derrotada'
+  },
+  enemy: {
+    id:'enemy', key:'tm',
+    name:'Tan Monarchy', short:'TM',
+    icon:'👑', color:'#b08840', colorLight:'#d4a040',
+    teamLabel:'TAN MONARCHY', spawnLabel:'Territorio TM',
+    logIcon:'👑', vicMsg:'¡TAN MONARCHY VICTORIOSA!',
+    defeatMsg:'TM ha sido derrotada'
+  }
+};
+function getFaction(team){ return FACTIONS[team]||FACTIONS.ally; }
+
+/* ═══════════════════════════════════════════════════════════════
    SECTION 4: TROOP QUALITY
    ═══════════════════════════════════════════════════════════════ */
 var GRADES = {
@@ -1234,9 +1257,22 @@ function fitMapToView() {
   if(!wrap||!sc) return;
   var gw=hexGridWidth(sc.cols), gh=hexGridHeight(sc.rows);
   var sx=wrap.clientWidth/gw, sy=wrap.clientHeight/gh;
-  mapZoom = Math.min(sx, sy); // fill viewport, no arbitrary cap
-  mapPanX = Math.max(0,(wrap.clientWidth  - gw*mapZoom)/2);
-  mapPanY = Math.max(0,(wrap.clientHeight - gh*mapZoom)/2);
+  mapZoom = Math.min(sx, sy) * 1.6; // zoom in so spawn is visible
+  // Focus camera on MY spawn zone center
+  var spawnZone = (MP.enabled && MP.role==='guest') ? sc.spawnEnemy : sc.spawnAlly;
+  if(spawnZone && spawnZone.length > 0){
+    // Find center of spawn zone
+    var sumC=0, sumR=0;
+    spawnZone.forEach(function(s){sumC+=s.c; sumR+=s.r;});
+    var cc=sumC/spawnZone.length, cr=sumR/spawnZone.length;
+    var sp=hexToPixel(cc,cr);
+    // Pan so that spawn center is in the middle of the viewport
+    mapPanX = wrap.clientWidth/2  - sp.x*mapZoom;
+    mapPanY = wrap.clientHeight/2 - sp.y*mapZoom;
+  } else {
+    mapPanX = Math.max(0,(wrap.clientWidth  - gw*mapZoom)/2);
+    mapPanY = Math.max(0,(wrap.clientHeight - gh*mapZoom)/2);
+  }
   applyMapTransform();
 }
 
@@ -1805,11 +1841,16 @@ function renderDeployCanvas() {
   cv.style.width=Math.ceil(gw*scale)+'px'; cv.style.height=Math.ceil(gh*scale)+'px';
   var ctx=cv.getContext('2d'); ctx.scale(dpr*scale,dpr*scale);
   drawBaseMap(ctx,sc);
-  // Spawn zones
-  ctx.fillStyle='rgba(60,160,50,.32)';
-  sc.spawnAlly.forEach(function(s){var p=hexToPixel(s.c,s.r);drawHex(ctx,p.x,p.y,TILE-2);ctx.fill();});
-  ctx.fillStyle='rgba(160,50,50,.22)';
-  sc.spawnEnemy.forEach(function(s){var p=hexToPixel(s.c,s.r);drawHex(ctx,p.x,p.y,TILE-2);ctx.fill();});
+  // Spawn zones — highlight MY zone brighter, opponent zone dimmer
+  var isGuest = MP.enabled && MP.role==='guest';
+  var mySpawnCol  = isGuest ? 'rgba(180,120,50,.42)' : 'rgba(60,160,50,.40)';  // tan=amber, green=green
+  var oppSpawnCol = isGuest ? 'rgba(60,160,50,.12)'  : 'rgba(160,50,50,.12)';
+  var mySpawnZone  = isGuest ? sc.spawnEnemy : sc.spawnAlly;
+  var oppSpawnZone = isGuest ? sc.spawnAlly  : sc.spawnEnemy;
+  ctx.fillStyle=mySpawnCol;
+  mySpawnZone.forEach(function(s){var p=hexToPixel(s.c,s.r);drawHex(ctx,p.x,p.y,TILE-2);ctx.fill();});
+  ctx.fillStyle=oppSpawnCol;
+  oppSpawnZone.forEach(function(s){var p=hexToPixel(s.c,s.r);drawHex(ctx,p.x,p.y,TILE-2);ctx.fill();});
   // Deployed units
   G.deployedUnits.forEach(function(u){drawUnit(ctx,u);});
 }
@@ -2222,10 +2263,17 @@ function showVictory(won) {
   var a=G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length;
   var e=G.units.filter(function(u){return u.team==='enemy'&&u.hp>0;}).length;
   var modeName=(MODE_DEFS[G.selectedMode]||{name:'Misión'}).name;
+  // Determine which faction won
+  var winFac, loseFac;
+  if(won){ winFac=getFaction('ally'); loseFac=getFaction('enemy'); }
+  else   { winFac=getFaction('enemy');loseFac=getFaction('ally'); }
+  document.getElementById('vic-result').textContent=winFac.icon+' '+winFac.vicMsg;
+  document.getElementById('vic-result').style.color=winFac.colorLight;
+  document.getElementById('vic-result').className='vic-result';
   document.getElementById('vic-stats').innerHTML=
     'Modo: '+modeName+'<br>Ronda: '+G.round
-    +'<br>'+(won?'¡Misión completada!':'Fuerzas aliadas eliminadas')
-    +'<br>Aliados en pie: '+a+' | Enemigos en pie: '+e;
+    +'<br>'+winFac.name+' ha ganado la batalla'
+    +'<br>'+FACTIONS.ally.short+' en pie: '+a+' | '+FACTIONS.enemy.short+' en pie: '+e;
   showOv('vic-ov');
 }
 
@@ -2640,7 +2688,7 @@ function aiActUnit(e) {
     var results=idxs.map(function(gi){return resolveWeapon(e,target,e.weaponGroups[gi]);}).filter(Boolean);
     var totalNet=results.reduce(function(s,r){return s+(r.net||0);},0);
     applyWounds(target,totalNet);
-    if(totalNet>0) addLog('🔴 '+e.name+'→'+target.name+': '+totalNet+' daño ('+target.hp+'/'+target.maxHp+' HP)','hit');
+    if(totalNet>0) addLog(getFaction('enemy').logIcon+' '+e.name+'→'+target.name+': '+totalNet+' daño ('+target.hp+'/'+target.maxHp+' HP)','hit');
     else addLog('○ '+e.name+'→'+target.name+': sin efecto','miss');
     if(target.hp<=0) addLog('💀 '+target.name+' ELIMINADO!','hit');
     e.acted=true; e.ap=Math.max(0,e.ap-1);
@@ -2670,7 +2718,7 @@ function aiActUnit(e) {
             var res2=idxs2.map(function(gi){return resolveWeapon(e,t2,e.weaponGroups[gi]);}).filter(Boolean);
             var net2=res2.reduce(function(s,r){return s+(r.net||0);},0);
             applyWounds(t2,net2);
-            if(net2>0) addLog('🔴 '+e.name+'→'+t2.name+': '+net2+' daño','hit');
+            if(net2>0) addLog(getFaction('enemy').logIcon+' '+e.name+'→'+t2.name+': '+net2+' daño','hit');
             else addLog('○ '+e.name+'→'+t2.name+': miss','miss');
             if(t2.hp<=0) addLog('💀 '+t2.name+' ELIMINADO!','hit');
             e.acted=true; e.ap=Math.max(0,e.ap-1);
@@ -2876,7 +2924,7 @@ function startAllyTurn() {
       target.menAlive=Math.min(target.menMax,Math.ceil(target.hp/target.hpPerMan));
     var healed=target.hp-before;
     if(healed>0)
-      addLog('🔴 Médico enemigo cura '+healed+' HP a '+target.name
+      addLog(getFaction('enemy').logIcon+' Médico TM cura '+healed+' HP a '+target.name
         +(amount===2?' ¡DOBLE!':''),'sys');
   });
   // Check objective
@@ -2915,15 +2963,21 @@ function setHint(msg){document.getElementById('g-hint').textContent=msg;}
 function updateGameUI(){
   // Team bar
   var tbar=document.getElementById('g-team-name');
+  var turnFac=getFaction(G.turn);
   if(MP.enabled){
     var isMyTurn=(G.turn===MP.myTeam);
-    tbar.textContent=isMyTurn?'TU TURNO':'OPONENTE';
-    tbar.className='g-team-name '+(isMyTurn?'':'enemy');
-    document.getElementById('g-round-info').textContent='Ronda '+G.round+' · P2P · '+(MP.myTeam==='ally'?'🟢 Verde':'🟤 Tan');
+    var myFac=getFaction(MP.myTeam);
+    tbar.textContent=isMyTurn?myFac.icon+' TU TURNO':getFaction(MP.oppTeam).icon+' OPONENTE';
+    tbar.style.color=isMyTurn?myFac.colorLight:getFaction(MP.oppTeam).colorLight;
+    tbar.className='g-team-name';
+    document.getElementById('g-round-info').textContent=
+      'Ronda '+G.round+' · P2P · '+myFac.short;
   } else {
-    tbar.textContent=G.turn==='ally'?'ALIADOS':'ENEMIGOS';
-    tbar.className='g-team-name '+(G.turn==='enemy'?'enemy':'');
-    document.getElementById('g-round-info').textContent='Ronda '+G.round+' · '+(G.turn==='ally'?'Tu turno':'Turno enemigo');
+    tbar.textContent=turnFac.icon+' '+turnFac.short;
+    tbar.style.color=turnFac.colorLight;
+    tbar.className='g-team-name';
+    document.getElementById('g-round-info').textContent=
+      'Ronda '+G.round+' · '+(G.turn==='ally'?'Turno UGN':'Turno TM');
   }
 
   // Unit info box
@@ -2981,6 +3035,11 @@ function updateGameUI(){
   var enemyDead=G.units.filter(function(u){return u.team==='enemy'&&u.hp<=0;}).length;
   document.getElementById('cas-ally').textContent=allyDead;
   document.getElementById('cas-enemy').textContent=enemyDead;
+  // Faction labels in right panel
+  var casAllyLbl=document.getElementById('cas-ally-lbl');
+  var casEnemyLbl=document.getElementById('cas-enemy-lbl');
+  if(casAllyLbl) casAllyLbl.textContent=FACTIONS.ally.short;
+  if(casEnemyLbl) casEnemyLbl.textContent=FACTIONS.enemy.short;
 
   // Units list
   var ul=document.getElementById('g-units');
@@ -3455,18 +3514,19 @@ function mpUpdateFog() {
   if(!MP.enabled) return;
   var sc=G.scenario;
   G.visibleCells=new Set(); G.visibleEnemyIds=new Set();
-  // Compute from MY units' perspective
+  // Pass 1: compute visible cells from MY units only
   G.units.filter(function(u){return u.team===MP.myTeam&&u.hp>0;}).forEach(function(a){
     var range=8;
     for(var dr=-range;dr<=range;dr++) for(var dc=-range;dc<=range;dc++){
-      var tc=a.c+dc,tr=a.r+dr;
+      var tc=a.c+dc, tr=a.r+dr;
       if(tc<0||tr<0||tc>=sc.cols||tr>=sc.rows) continue;
       if(hexDist(a.c,a.r,tc,tr)>range) continue;
       if(hasLOS(a.c,a.r,tc,tr,a)) G.visibleCells.add(tc+','+tr);
     }
-    G.units.filter(function(u){return u.team===MP.oppTeam&&u.hp>0;}).forEach(function(e){
-      if(G.visibleCells.has(e.c+','+e.r)) G.visibleEnemyIds.add(e.id);
-    });
+  });
+  // Pass 2: mark opponent units visible only if in my visible cells
+  G.units.filter(function(u){return u.team===MP.oppTeam&&u.hp>0;}).forEach(function(e){
+    if(G.visibleCells.has(e.c+','+e.r)) G.visibleEnemyIds.add(e.id);
   });
 }
 
@@ -3684,11 +3744,14 @@ function deployTap(clientX,clientY){
   var h=pixelToHex(lx,ly);
   var sc=G.scenario;
   if(h.c<0||h.r<0||h.c>=sc.cols||h.r>=sc.rows) return;
-  if(!sc.spawnAlly.find(function(s){return s.c===h.c&&s.r===h.r;})) return;
+  // MP guest deploys in spawnEnemy zone as 'enemy' team
+  var myTeam   = (MP.enabled && MP.role==='guest') ? 'enemy' : 'ally';
+  var mySpawn  = (MP.enabled && MP.role==='guest') ? sc.spawnEnemy : sc.spawnAlly;
+  if(!mySpawn.find(function(s){return s.c===h.c&&s.r===h.r;})) return;
   if(G.deployedUnits.find(function(u){return u.c===h.c&&u.r===h.r;})) return;
   var def=UNIT_DEFS[selectedRosterKey];
   if(G.pointsLeft<def.cost) return;
-  G.deployedUnits.push(createUnit(selectedRosterKey,'ally',h.c,h.r));
+  G.deployedUnits.push(createUnit(selectedRosterKey,myTeam,h.c,h.r));
   G.pointsLeft-=def.cost;
   renderDeployCanvas(); updateDeployUI(); renderRoster();
 }

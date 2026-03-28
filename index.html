@@ -26,7 +26,7 @@
   <div style="font-size:9px;color:var(--text3);letter-spacing:3px">CONEXIÓN P2P DIRECTA VÍA PEERJS</div>
 
   <div id="mp-create-section" style="display:flex;flex-direction:column;align-items:center;gap:8px;width:100%;max-width:360px">
-    <button class="btn btn-go" id="btn-mp-create" style="width:100%;padding:10px;letter-spacing:2px">CREAR PARTIDA (HOST)</button>
+    <button class="btn btn-go" id="btn-mp-create" style="width:100%;padding:10px;letter-spacing:2px;background:#1a3a10;border-color:#3a7a28;color:#6acd4a">🌿 CREAR PARTIDA · UNITED GREEN NATIONS</button>
     <div id="mp-host-id-wrap" style="display:none;text-align:center;width:100%">
       <div style="font-size:9px;color:var(--text3);letter-spacing:2px;margin-bottom:4px">TU ID DE CONEXIÓN</div>
       <div id="mp-host-id" style="font-size:11px;color:var(--amber3);font-family:monospace;background:var(--bg3);padding:8px 12px;border:1px solid var(--border2);word-break:break-all;user-select:all;cursor:text">—</div>
@@ -36,11 +36,15 @@
   </div>
 
   <div style="font-size:9px;color:var(--text3);letter-spacing:3px">— O —</div>
+  <div style="font-size:8px;color:var(--text3);text-align:center;max-width:360px;line-height:1.5">
+    🌿 Quien crea la partida juega como <b style="color:#6acd4a">United Green Nations</b> (lado izquierdo)<br>
+    👑 Quien se une juega como <b style="color:#d4a040">Tan Monarchy</b> (lado derecho)
+  </div>
 
   <div id="mp-join-section" style="display:flex;flex-direction:column;align-items:center;gap:8px;width:100%;max-width:360px">
     <input id="mp-join-input" placeholder="Pega el ID de conexión aquí"
       style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);font-family:monospace;font-size:11px;letter-spacing:1px;padding:8px 12px;text-align:center">
-    <button class="btn" id="btn-mp-join" style="width:100%;padding:9px;letter-spacing:2px">UNIRSE A PARTIDA (GUEST)</button>
+    <button class="btn" id="btn-mp-join" style="width:100%;padding:9px;letter-spacing:2px;border-color:#8a6020;color:#d4a040">👑 UNIRSE A PARTIDA · TAN MONARCHY</button>
   </div>
 
   <div id="mp-status" style="font-size:10px;color:var(--text3);letter-spacing:2px;min-height:20px;text-align:center">—</div>
@@ -148,8 +152,8 @@
     </div>
     <div class="g-cas">
       <div style="font-size:8px;color:var(--text3);letter-spacing:2px;margin-bottom:5px">BAJAS</div>
-      <div class="cas-row"><div class="cas-dot dot-ally"></div><div class="cas-num" id="cas-ally">0</div><div class="cas-lbl">Aliados</div></div>
-      <div class="cas-row"><div class="cas-dot dot-enemy"></div><div class="cas-num" id="cas-enemy">0</div><div class="cas-lbl">Enemigos</div></div>
+      <div class="cas-row"><div class="cas-dot dot-ally"></div><div class="cas-num" id="cas-ally">0</div><div class="cas-lbl" id="cas-ally-lbl">UGN</div></div>
+      <div class="cas-row"><div class="cas-dot dot-enemy"></div><div class="cas-num" id="cas-enemy">0</div><div class="cas-lbl" id="cas-enemy-lbl">TM</div></div>
     </div>
     <div id="g-units" class="g-units"></div>
     <div class="g-obj">
