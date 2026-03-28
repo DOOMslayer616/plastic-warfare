@@ -680,36 +680,39 @@ var UNIT_DEFS = {
 /* ═══════════════════════════════════════════════════════════════
    SECTION 7: SCENARIO OBJECTIVES
    ═══════════════════════════════════════════════════════════════ */
+// Objective helper: 'ally' always = UGN regardless of perspective
+// In MP this is always correct because team names are canonical
+function objAllyAlive(){ return G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length; }
+function objEnemyAlive(){ return G.units.filter(function(u){return u.team==='enemy'&&u.hp>0;}).length; }
+
 var OBJECTIVES = {
   eliminate_all: {
     label:'Eliminar todas las fuerzas enemigas',
-    check:function(){ return G.units.filter(function(u){return u.team==='enemy'&&u.hp>0;}).length===0; },
-    lose: function(){ return G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length===0; }
+    // UGN wins: no TM alive. TM wins: no UGN alive.
+    check:function(){ return objEnemyAlive()===0; },
+    lose: function(){ return objAllyAlive()===0; }
   },
   eliminate_75: {
-    label:'Eliminar 75% de fuerzas enemigas',
+    label:'Eliminar al 75% de fuerzas enemigas',
     check:function(){
       var tot=G.objData.enemyStart||1;
-      return G.units.filter(function(u){return u.team==='enemy'&&u.hp>0;}).length<=Math.floor(tot*0.25);
+      return objEnemyAlive()<=Math.floor(tot*0.25);
     },
-    lose:function(){ return G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length===0; }
+    lose:function(){ return objAllyAlive()===0; }
   },
   capture: {
     label:'Mantener la zona central 5 rondas completas sin enemigos',
-    // check() and lose() only READ the counters — never write them.
-    // Counters are updated once per complete round in evaluateCaptureZone().
-    check:function(){
-      return (G.objData.captureTurns||0)>=5;
-    },
+    check:function(){ return (G.objData.captureTurns||0)>=5; },
     lose:function(){
       if((G.objData.enemyCaptureTurns||0)>=5) return true;
-      return G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length===0;
+      return objAllyAlive()===0;
     }
   },
   survive: {
     label:'Sobrevivir 10 rondas',
-    check:function(){ return G.round>10&&G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length>0; },
-    lose:function(){ return G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length===0; }
+    // UGN survives 10 rounds = UGN wins. UGN eliminated = TM wins.
+    check:function(){ return G.round>10 && objAllyAlive()>0; },
+    lose:function(){ return objAllyAlive()===0; }
   }
 };
 
@@ -1806,12 +1809,15 @@ function renderGame() {
   // Units (ground first, then flying)
   G.units.forEach(function(u){
     if(u.hp<=0||u.flying) return;
-    if(u.team==='enemy'&&!G.visibleEnemyIds.has(u.id)) return;
+    // In MP: hide opponent units not in LOS. Own units always visible.
+    var oppTeam = MP.enabled ? MP.oppTeam : 'enemy';
+    if(u.team===oppTeam&&!G.visibleEnemyIds.has(u.id)) return;
     drawUnit(ctx,u);
   });
   G.units.forEach(function(u){
     if(u.hp<=0||!u.flying) return;
-    if(u.team==='enemy'&&!G.visibleEnemyIds.has(u.id)) return;
+    var oppTeamF = MP.enabled ? MP.oppTeam : 'enemy';
+    if(u.team===oppTeamF&&!G.visibleEnemyIds.has(u.id)) return;
     // Flying: dashed border
     var fp=hexToPixel(u.c,u.r);
     ctx.strokeStyle=u.team==='ally'?'rgba(100,200,255,.45)':'rgba(255,140,100,.45)';
@@ -2269,6 +2275,12 @@ function checkVictory() {
   var won=obj.check(), lost=obj.lose();
   if(won||lost){
     G.victoryShown=true;
+    // In MP: sync victory to opponent so both see the result
+    if(MP.enabled){
+      // 'won' means UGN achieved objective. Determine who actually won from each perspective.
+      var allyWon = won; // UGN wins if check() = true
+      mpSend('game_over',{allyWon:allyWon,round:G.round});
+    }
     setTimeout(function(){ showVictory(won); }, 400);
     return true;
   }
@@ -3577,6 +3589,15 @@ function mpHandleData(data) {
       break;
 
     // Chat/ping
+    case 'game_over':
+      // Opponent triggered victory condition — show result on this client too
+      if(!G.victoryShown){
+        G.victoryShown=true;
+        var allyWon=data.payload.allyWon;
+        setTimeout(function(){ showVictory(allyWon); }, 400);
+      }
+      break;
+
     case 'ping':
       mpSend('pong',{});
       break;
@@ -3737,7 +3758,7 @@ function mpApplyState(state) {
     G.moveTiles=[]; G.attackTiles=[];
   }
   updateGameUI(); renderGame();
-  checkVictory();
+  // Victory checked via game_over message
 }
 
 function mpHandleStartMyTurn() {
