@@ -87,6 +87,16 @@
       <button class="btn btn-back" id="btn-back-scene">◀ VOLVER</button>
       <button class="btn btn-go" id="btn-start-battle">INICIAR BATALLA ▶</button>
     </div>
+
+  <!-- MP READY OVERLAY (shown over deploy screen) -->
+  <div id="mp-ready-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:200;flex-direction:column;align-items:center;justify-content:center;gap:14px">
+    <div style="font-size:9px;color:var(--text3);letter-spacing:3px">CONFIRMACIÓN DE INICIO</div>
+    <div id="mp-ready-who" style="font-size:18px;letter-spacing:3px;font-weight:600"></div>
+    <div style="font-size:10px;color:var(--text3);text-align:center;max-width:320px;line-height:1.6">
+      Ambos jugadores deben confirmar que están listos.<br>Tu ejército ha sido enviado.
+    </div>
+    <button class="btn btn-go" id="btn-mp-ready" onclick="mpClickReady()" style="font-size:13px;letter-spacing:3px;padding:10px 28px">✓ ESTOY LISTO</button>
+  </div>
   </div>
   <div class="deploy-main">
     <div class="deploy-map-area">
@@ -123,6 +133,7 @@
       <button class="abtn assault-btn" id="btn-assault">ASALTAR</button>
       <button class="abtn" id="btn-deploy" style="border-color:var(--blue2);color:var(--blue3)">DESPLEGAR</button>
       <button class="abtn end-btn" id="btn-end">FIN TURNO</button>
+      <button class="abtn" id="btn-retreat" style="border-color:var(--red1);color:var(--red2);grid-column:span 3;font-size:8px">RETIRARSE</button>
     </div>
     <div id="g-hint" class="g-hint">Selecciona una unidad aliada</div>
     <div id="g-log" class="g-log"></div>
@@ -198,6 +209,38 @@
   <button class="btn" id="btn-start-mission">INICIAR</button>
 </div>
 
+
+<!-- SP RETREAT CONFIRM -->
+<div id="retreat-ov" class="ov" style="gap:14px">
+  <div style="font-size:11px;letter-spacing:3px;color:var(--text2)">¿CONFIRMAR RETIRADA?</div>
+  <div style="font-size:10px;color:var(--text3);text-align:center;max-width:280px;line-height:1.6">
+    Tus fuerzas abandonarán el campo de batalla.<br>Esta acción no se puede deshacer.
+  </div>
+  <div style="display:flex;gap:10px">
+    <button class="btn" id="btn-retreat-confirm" style="border-color:var(--red2);color:var(--red3)">CONFIRMAR RETIRADA</button>
+    <button class="btn btn-go" id="btn-retreat-cancel">CONTINUAR COMBATE</button>
+  </div>
+</div>
+<!-- MP HOST ENDED -->
+<div id="mp-host-ended-ov" class="ov" style="gap:14px">
+  <div style="font-size:11px;letter-spacing:3px;color:var(--red3)">PARTIDA FINALIZADA</div>
+  <div style="font-size:10px;color:var(--text3);text-align:center;max-width:300px;line-height:1.6">
+    El host ha abandonado la partida.<br>La sesión ha sido cerrada.
+  </div>
+  <button class="btn btn-go" id="btn-host-ended-ok">VOLVER AL MENÚ</button>
+</div>
+<!-- MP GUEST DISCONNECTED -->
+<div id="mp-guest-dc-ov" class="ov" style="gap:14px">
+  <div style="font-size:11px;letter-spacing:3px;color:var(--amber3)">OPONENTE DESCONECTADO</div>
+  <div id="mp-guest-dc-msg" style="font-size:10px;color:var(--text3);text-align:center;max-width:320px;line-height:1.6">
+    Tu oponente se ha desconectado.<br>Puede reconectarse con el mismo código.
+  </div>
+  <div id="mp-rejoin-code" style="font-size:11px;color:var(--amber3);font-family:monospace;background:var(--bg3);padding:6px 12px;border:1px solid var(--border2);word-break:break-all;text-align:center"></div>
+  <div style="display:flex;gap:10px">
+    <button class="btn btn-go" id="btn-wait-rejoin">ESPERAR RECONEXIÓN</button>
+    <button class="btn btn-back" id="btn-end-after-dc">TERMINAR PARTIDA</button>
+  </div>
+</div>
 <script src="plastic_warfare.js"></script>
 </body>
 </html>

@@ -1257,7 +1257,12 @@ function fitMapToView() {
   if(!wrap||!sc) return;
   var gw=hexGridWidth(sc.cols), gh=hexGridHeight(sc.rows);
   var sx=wrap.clientWidth/gw, sy=wrap.clientHeight/gh;
-  mapZoom = Math.min(sx, sy) * 1.6; // zoom in so spawn is visible
+  // SP: fit whole map; MP: zoom into MY spawn zone
+  if(MP.enabled){
+    mapZoom = Math.min(sx,sy) * 2.2;
+  } else {
+    mapZoom = Math.min(sx, sy); // SP: show whole map
+  }
   // Focus camera on MY spawn zone center
   var spawnZone = (MP.enabled && MP.role==='guest') ? sc.spawnEnemy : sc.spawnAlly;
   if(spawnZone && spawnZone.length > 0){
@@ -1853,6 +1858,21 @@ function renderDeployCanvas() {
   oppSpawnZone.forEach(function(s){var p=hexToPixel(s.c,s.r);drawHex(ctx,p.x,p.y,TILE-2);ctx.fill();});
   // Deployed units
   G.deployedUnits.forEach(function(u){drawUnit(ctx,u);});
+  // After render, scroll deploy map area so MY spawn is visible
+  var deployArea=document.querySelector('.deploy-map-area');
+  if(deployArea){
+    var isGuest=MP.enabled&&MP.role==='guest';
+    var myZone=isGuest?sc.spawnEnemy:sc.spawnAlly;
+    if(myZone&&myZone.length){
+      var sumC=0,sumR=0;
+      myZone.forEach(function(s){sumC+=s.c;sumR+=s.r;});
+      var cc=sumC/myZone.length, cr=sumR/myZone.length;
+      var p=hexToPixel(cc,cr);
+      var scl=parseFloat(cv.style.width)/hexGridWidth(sc.cols);
+      deployArea.scrollLeft=p.x*scl - deployArea.clientWidth/2;
+      deployArea.scrollTop =p.y*scl - deployArea.clientHeight/2;
+    }
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -3073,6 +3093,9 @@ function updateGameUI(){
   // Objective
   var md2=MODE_DEFS[G.selectedMode]||{name:'—',sub:''};
   document.getElementById('obj-txt').textContent=md2.name+' — '+md2.sub;
+  // Retreat/abandon label
+  var retreatBtn=document.getElementById('btn-retreat');
+  if(retreatBtn) retreatBtn.textContent=MP.enabled?'ABANDONAR PARTIDA':'RETIRARSE';
 }
 
 function selectUnit(u){
@@ -3161,6 +3184,12 @@ function updateDeployUI(){
    ═══════════════════════════════════════════════════════════════ */
 function initSceneSelect(){
   playMusicTrack('menu');
+  // Reset MP state when returning to menu
+  if(MP.peer){ try{MP.peer.destroy();}catch(e){} }
+  MP.enabled=false; MP.role=null; MP.peer=null; MP.conn=null;
+  MP.myTeam=null; MP.oppTeam=null; MP.ready=false;
+  MP.iAmReady=false; MP.oppReady=false;
+  G.selectedMode=G.selectedMode||'confrontacion';
   showScreen('scene');
 }
 
@@ -3261,7 +3290,7 @@ function startBattle(){
     G.objData.captureHex={c:Math.floor(G.scenario.cols/2),r:Math.floor(G.scenario.rows/2)};
   var mName=(MODE_DEFS[G.selectedMode]||{name:''}).name;
   document.getElementById('g-scene-name').textContent=G.scenario.name+(mName?' · '+mName:'');
-  document.getElementById('obj-txt').textContent=(OBJECTIVES[G.currentObjective]||{label:''}).label;
+  document.getElementById('obj-txt').textContent=(MODE_DEFS[G.selectedMode]||{name:'—',sub:''}).name+' — '+(MODE_DEFS[G.selectedMode]||{sub:''}).sub;
   updateFog();
   renderGame();
   fitMapToView();
@@ -3278,14 +3307,16 @@ function startBattle(){
    ═══════════════════════════════════════════════════════════════ */
 
 var MP = {
-  enabled:  false,
-  role:     null,   // 'host' | 'guest'
-  peer:     null,
-  conn:     null,
-  myTeam:   null,   // 'ally' | 'enemy'
-  oppTeam:  null,
-  ready:    false,
-  peerReady:false,
+  enabled:   false,
+  role:      null,   // 'host' | 'guest'
+  peer:      null,
+  conn:      null,
+  myTeam:    null,   // 'ally' | 'enemy'
+  oppTeam:   null,
+  ready:     false,
+  peerReady: false,
+  iAmReady:  false,  // clicked READY button
+  oppReady:  false,  // opponent clicked READY
 };
 
 // ── STATUS DISPLAY ────────────────────────────────────────────────────
@@ -3401,7 +3432,22 @@ function mpSetupConn() {
   c.on('data', function(data) { mpHandleData(data); });
   c.on('close', function() {
     mpStatus('Conexión perdida','var(--red3)');
-    if(G.scenario) addLog('⚠ Conexión con oponente perdida','sys');
+    if(G.scenario){
+      addLog('⚠ Conexión con oponente perdida','sys');
+      if(MP.role==='host'){
+        // Unexpected guest disconnect (tab close) — offer rejoin
+        var rejoinId=MP.peer&&MP.peer._fullId?MP.peer._fullId:'';
+        if(rejoinId){
+          document.getElementById('mp-rejoin-code').textContent=rejoinId;
+          document.getElementById('mp-guest-dc-msg').textContent=
+            getFaction(MP.oppTeam).icon+' Se desconectó inesperadamente. Puede volver con:';
+          showOv('mp-guest-dc-ov');
+        }
+      } else {
+        // Guest lost connection to host — show ended overlay
+        showOv('mp-host-ended-ov');
+      }
+    }
   });
   c.on('error', function(e){ mpStatus('Error conn: '+e,'var(--red3)'); });
 }
@@ -3413,13 +3459,64 @@ function mpSend(type, payload) {
 }
 
 // ── RECEIVE ───────────────────────────────────────────────────────────
+// ── Map serialization — obstacle sync P2P ────────────────────────────
+function mpSerializeMap(sc) {
+  var obsData=[];
+  sc.map.forEach(function(row,r){
+    row.forEach(function(t,c){
+      if(t.obs) obsData.push({c:c,r:r,type:t.obs.type,cover:t.obs.cover,
+                               label:t.obs.label,groupId:t.obs.groupId||null});
+    });
+  });
+  return {obsData:obsData,multiObs:sc.multiObs||[]};
+}
+function mpApplySerializedMap(ser,sc) {
+  sc.map.forEach(function(row){row.forEach(function(t){t.obs=null;});});
+  ser.obsData.forEach(function(o){
+    if(o.r>=0&&o.r<sc.rows&&o.c>=0&&o.c<sc.cols&&sc.map[o.r][o.c].type==='floor')
+      sc.map[o.r][o.c].obs={type:o.type,cover:o.cover,label:o.label,groupId:o.groupId||null};
+  });
+  sc.multiObs=ser.multiObs||[];
+}
+
+// ── Ready confirmation ────────────────────────────────────────────────
+function mpShowReadyOverlay() {
+  var ov=document.getElementById('mp-ready-overlay');
+  if(!ov) return;
+  ov.style.display='flex';
+  var el=document.getElementById('mp-ready-who');
+  if(el){ el.textContent=getFaction(MP.myTeam).icon+' '+getFaction(MP.myTeam).name;
+          el.style.color=getFaction(MP.myTeam).colorLight; }
+}
+function mpClickReady() {
+  MP.iAmReady=true;
+  var btn=document.getElementById('btn-mp-ready');
+  if(btn){btn.disabled=true;btn.textContent='✓ LISTO — Esperando oponente…';}
+  mpSend('player_ready',{});
+  addLog('[MP] '+getFaction(MP.myTeam).short+' confirmado. Esperando…','sys');
+  if(MP.oppReady) mpBothReady();
+}
+function mpBothReady() {
+  var ov=document.getElementById('mp-ready-overlay');
+  if(ov) ov.style.display='none';
+  if(MP.role==='host'){
+    G.units=G.deployedUnits.concat(MP._pendingGuestUnits||[]);
+    mpStartBattle();
+  }
+}
+
 function mpHandleData(data) {
   switch(data.type) {
 
     // Host → Guest: scenario + mode chosen
     case 'scenario_info':
       G.selectedMode = data.payload.mode;
+      // Build map locally but then OVERRIDE with host's serialized obstacles
       G.scenario = buildMap(data.payload.roomKey, data.payload.mode);
+      // Override obstacles with host's exact layout (sync)
+      if(data.payload.mapSerialized){
+        mpApplySerializedMap(data.payload.mapSerialized, G.scenario);
+      }
       mpStatus('Escenario recibido. Despliega tus tropas.','var(--green3)');
       G.deployedUnits=[]; G.pointsLeft=STARTING_POINTS;
       selectedRosterKey=null;
@@ -3429,15 +3526,27 @@ function mpHandleData(data) {
       document.getElementById('deploy-header-scene').textContent =
         G.scenario.name+' · '+MODE_DEFS[G.selectedMode].name;
       renderDeployCanvas(); renderRoster(); updateDeployUI();
-      addLog('[MP] Guest: despliega tus tropas TAN','sys');
+      addLog('[MP] 👑 TM: despliega tus tropas','sys');
       break;
 
     // Guest → Host: guest finished deploying
     case 'guest_deployed':
-      var enemyUnits = data.payload.units.map(function(u){ return u; });
-      // Add guest's units to game
-      G.units = G.deployedUnits.concat(enemyUnits);
-      mpStartBattle();
+      // Guest has deployed — host stores their units and waits for ready
+      MP._pendingGuestUnits = data.payload.units;
+      mpSend('host_ready_check', {}); // ask guest to confirm ready
+      mpShowReadyOverlay('host');
+      break;
+
+    case 'host_ready_check':
+      // Host asks if guest is ready
+      mpShowReadyOverlay('guest');
+      break;
+
+    case 'player_ready':
+      MP.oppReady = true;
+      addLog('[MP] '+getFaction(MP.oppTeam).short+' LISTO','sys');
+      if(MP.iAmReady) mpBothReady();
+      else mpStatus('Oponente listo. Confirma tu inicio.','var(--amber3)');
       break;
 
     // Host → Guest: full game state at start
@@ -3458,12 +3567,32 @@ function mpHandleData(data) {
     case 'ping':
       mpSend('pong',{});
       break;
+
+    case 'host_abandoned':
+      // Guest: host ended the session
+      if(MP.peer) try{MP.peer.destroy();}catch(e){}
+      MP.enabled=false;
+      showOv('mp-host-ended-ov');
+      break;
+
+    case 'guest_abandoned':
+      // Host: guest disconnected — offer rejoin window
+      MP.conn=null;
+      var rejoinId=MP.peer&&MP.peer._fullId?MP.peer._fullId:'(sin código)';
+      document.getElementById('mp-rejoin-code').textContent=rejoinId;
+      document.getElementById('mp-guest-dc-msg').textContent=
+        getFaction(MP.oppTeam).icon+' '+getFaction(MP.oppTeam).name+
+        ' se ha desconectado.\nPuede reconectarse con el mismo código:';
+      showOv('mp-guest-dc-ov');
+      break;
   }
 }
 
 // ── HOST: scenario selected → send to guest ───────────────────────────
 function mpHostScenarioChosen(roomKey, modeKey) {
-  mpSend('scenario_info', {roomKey:roomKey, mode:modeKey});
+  var mapSer = mpSerializeMap(G.scenario);
+  mpSend('scenario_info', {roomKey:roomKey, mode:modeKey, mapSerialized:mapSer});
+  addLog('[MP] Mapa sincronizado con oponente','sys');
 }
 
 // ── BATTLE START — HOST SIDE ──────────────────────────────────────────
@@ -3653,6 +3782,44 @@ function mpIsMyTurn() {
 /* ═══════════════════════════════════════════════════════════════
    SECTION 18: EVENT HANDLERS
    ═══════════════════════════════════════════════════════════════ */
+
+
+// ── RETREAT / ABANDON ────────────────────────────────────────────────
+function onRetreatClick() {
+  if(MP.enabled){ mpAbandon(); } else { showOv('retreat-ov'); }
+}
+function confirmRetreat() {
+  hideOv('retreat-ov'); hideOv('vic-ov'); initSceneSelect();
+}
+function mpAbandon() {
+  if(MP.role==='host'){
+    mpSend('host_abandoned',{});
+    setTimeout(function(){
+      if(MP.peer) try{MP.peer.destroy();}catch(e){}
+      MP.enabled=false; initSceneSelect();
+    },300);
+  } else {
+    mpSend('guest_abandoned',{});
+    showScreen('mp');
+    mpStatus('Has abandonado la partida. Puedes reconectarte con el mismo ID del host.','var(--amber3)');
+    MP.iAmReady=false; MP.oppReady=false;
+  }
+}
+function mpGuestRejoin() {
+  hideOv('mp-guest-dc-ov');
+  mpStatus('Esperando reconexión del oponente…','var(--amber3)');
+  if(MP.peer){
+    MP.peer.removeAllListeners&&MP.peer.removeAllListeners('connection');
+    MP.peer.on('connection',function(conn){
+      MP.conn=conn; MP.ready=true;
+      mpSetupConn();
+      mpStatus('¡Oponente reconectado!','var(--green3)');
+      setTimeout(function(){
+        mpSend('battle_start',{units:G.units,round:G.round,turn:G.turn,objData:G.objData||{}});
+      },500);
+    });
+  }
+}
 
 // ── Game canvas click (mouse) ─────────────────────────────────
 document.getElementById('game-canvas').addEventListener('click', function(e){
@@ -3869,6 +4036,20 @@ document.getElementById('btn-dice-ok').addEventListener('click',function(){
 document.getElementById('btn-vic-menu').addEventListener('click',function(){
   hideOv('vic-ov'); initSceneSelect();
   G.selectedMode=null;
+});
+document.getElementById('btn-retreat').addEventListener('click', onRetreatClick);
+document.getElementById('btn-retreat-confirm').addEventListener('click', confirmRetreat);
+document.getElementById('btn-retreat-cancel').addEventListener('click', function(){ hideOv('retreat-ov'); });
+document.getElementById('btn-host-ended-ok').addEventListener('click', function(){
+  hideOv('mp-host-ended-ov'); initSceneSelect();
+});
+document.getElementById('btn-wait-rejoin').addEventListener('click', function(){
+  hideOv('mp-guest-dc-ov'); mpGuestRejoin();
+});
+document.getElementById('btn-end-after-dc').addEventListener('click', function(){
+  hideOv('mp-guest-dc-ov');
+  if(MP.peer) try{MP.peer.destroy();}catch(e){}
+  MP.enabled=false; initSceneSelect();
 });
 
 // ── Zoom controls ─────────────────────────────────────────────
