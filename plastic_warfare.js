@@ -449,7 +449,7 @@ function hasLOS(c1,r1,c2,r2,attackerUnit) {
     var ot=tile.obs.type;
     if(isHeli) continue;
     if(TALL_OBS.indexOf(ot)>=0) return false;
-    if(MED_OBS.indexOf(ot)>=0 && !isVeh) return false;
+    // Medium obstacles: can shoot through (no LOS block)
   }
   return true;
 }
@@ -540,24 +540,27 @@ function isLight(t) { return LIGHT_OBS.indexOf(t)>=0; }
 function getCoverInfo(ac,ar,dc,dr,isDefVeh) {
   var sc=G.scenario;
   if(dc<0||dr<0||dc>=sc.cols||dr>=sc.rows) return {type:'none'};
+
+  // Own tile first — unit IN the obstacle = full cover from ALL directions
   var own=sc.map[dr][dc].obs;
   if(own&&!isDefVeh) {
-    if(isTall(own.type))  return {type:'high',obs:own};
-    if(isMed(own.type))   return {type:'medium',obs:own};
-    if(isLight(own.type)) return {type:'light',obs:own};
+    if(isTall(own.type))  return {type:'high',  obs:own, fromAdjacent:false};
+    if(isMed(own.type))   return {type:'medium', obs:own, fromAdjacent:false};
+    if(isLight(own.type)) return {type:'light',  obs:own, fromAdjacent:false};
   }
   if(isDefVeh) return {type:'none'};
-  // Check adjacent toward attacker
+
+  // Adjacent tiles — obstacle must face the attacker (angular check)
   var dx=ac-dc, dy=ar-dr, best={type:'none'};
   hexNeighbors(dc,dr).forEach(function(n){
-    var adj=sc.map[n.r]&&sc.map[n.r][n.c]?sc.map[n.r][n.c].obs:null;
-    if(!adj) return;
-    var ox=n.c-dc,oy=n.r-dr, dot=dx*ox+dy*oy;
+    var tile=sc.map[n.r]&&sc.map[n.r][n.c]?sc.map[n.r][n.c]:null;
+    if(!tile||!tile.obs) return;
+    var ox=n.c-dc, oy=n.r-dr, dot=dx*ox+dy*oy;
     if(dot<=0) return;
-    var t=adj.type;
-    if(isTall(t)) {best={type:'high',obs:adj};return;}
-    if(isMed(t)&&best.type!=='high') best={type:'medium',obs:adj};
-    if(isLight(t)&&best.type==='none') best={type:'light',obs:adj};
+    var t=tile.obs.type;
+    if(isTall(t)) { best={type:'high',  obs:tile.obs, fromAdjacent:true}; return; }
+    if(isMed(t)  && best.type!=='high')  best={type:'medium', obs:tile.obs, fromAdjacent:true};
+    if(isLight(t)&& best.type==='none')  best={type:'light',  obs:tile.obs, fromAdjacent:true};
   });
   return best;
 }
@@ -597,7 +600,7 @@ var UNIT_DEFS = {
   riflemen:  {name:'Fusileros',      abbr:'FUSI',cost:120,grade:'average',
     maxMen:6,hpPerMan:2,move:4,ap:2,icon:'●',
     tags:['infantry'],
-    saves:{none:6,light:6,medium:5,high:4},
+    saves:{none:6,light:6,medium:5,high:3},
     weaponGroups:[{count:6,weapon:'assault_rifle',label:'6× Rifle Asalto'}],
     desc:'6 fusileros. Rapid Fire a media distancia.'},
   medics:    {name:'Escuadrón Médico',abbr:'MÉDI',cost:90,grade:'average',
@@ -610,13 +613,13 @@ var UNIT_DEFS = {
   antitank:  {name:'Eq. Antitanque', abbr:'AT',  cost:150,grade:'average',
     maxMen:3,hpPerMan:2,move:3,ap:2,icon:'★',
     tags:['infantry','anti_vehicle'],
-    saves:{none:6,light:6,medium:5,high:4},
+    saves:{none:6,light:6,medium:5,high:3},
     weaponGroups:[{count:1,weapon:'at_launcher',label:'1× Lanzacohetes AT'},{count:2,weapon:'assault_rifle',label:'2× Rifle Escolta'}],
     desc:'1 artillero AT + 2 escoltas.'},
   sniper:    {name:'Francotirador',  abbr:'FRAN', cost:130,grade:'good',
     maxMen:2,hpPerMan:2,move:3,ap:2,icon:'▲',
     tags:['infantry'],
-    saves:{none:6,light:5,medium:5,high:4},
+    saves:{none:6,light:5,medium:4,high:3},
     weaponGroups:[{count:1,weapon:'sniper_rifle',label:'1× Rifle Precisión'},{count:1,weapon:'spotter_pistol',label:'1× Pistola Obs.'}],
     desc:'Precisión: BS:3+ sin mover. Bonus a distancia larga. Peor si se mueve.'},
   tank:      {name:'Tanque',         abbr:'TANK', cost:300,grade:'good',
@@ -694,61 +697,266 @@ var OBJECTIVES = {
 // TILE=46: 14×12 grid → ~955×1083px → zoom≈0.6 fills 650×700 viewport
 // ── RANDOM OBSTACLE GENERATOR ─────────────────────────────────────────
 // Generates obstacles avoiding spawn zones and walls
-function generateObstacles(cols, rows, spawnAlly, spawnEnemy, palette, count) {
-  var obstacles = [];
-  // Build set of forbidden coords (spawn zones + border margin)
-  var forbidden = new Set();
-  function addZone(zone, margin) {
-    for(var r=zone.r-margin; r<zone.r+zone.h+margin; r++)
-      for(var c=zone.c-margin; c<zone.c+zone.w+margin; c++)
-        forbidden.add(c+','+r);
-  }
-  addZone(spawnAlly,  2);
-  addZone(spawnEnemy, 2);
-  // Also forbid border ring
-  for(var c=0;c<cols;c++){forbidden.add(c+',0');forbidden.add(c+','+(rows-1));}
-  for(var r=0;r<rows;r++){forbidden.add('0,'+r);forbidden.add((cols-1)+','+r);}
+// Hex offset patterns for multi-hex obstacles (even-col anchors only)
+var MED_4_PATTERN  = [[0,0],[1,0],[1,-1],[0,-1]];          // 4-hex diamond
+var HIGH_6_PATTERN = [[0,0],[1,0],[2,0],[0,-1],[1,-1],[2,-1]]; // 6-hex 3×2 block
 
-  var attempts=0, placed=0;
-  while(placed<count && attempts<count*20) {
-    attempts++;
-    var tmpl=palette[Math.floor(Math.random()*palette.length)];
-    var c=1+Math.floor(Math.random()*(cols-2));
-    var r=1+Math.floor(Math.random()*(rows-2));
-    // Check all cells of this obstacle
-    var ok=true;
-    for(var dr=0;dr<tmpl.h&&ok;dr++) for(var dc=0;dc<tmpl.w&&ok;dc++)
-      if(forbidden.has((c+dc)+','+(r+dr))) ok=false;
-    if(!ok) continue;
-    obstacles.push({c:c,r:r,w:tmpl.w,h:tmpl.h,type:tmpl.type,cover:tmpl.cover,label:tmpl.label});
-    // Mark placed cells as forbidden
-    for(var dr=0;dr<tmpl.h;dr++) for(var dc=0;dc<tmpl.w;dc++)
-      forbidden.add((c+dc)+','+(r+dr));
-    placed++;
+function generateObstacles(map, cols, rows, spawnAlly, spawnEnemy,
+                            lightPal, medPal, highPal, lightN, medN, highN,
+                            layout, roomInfo) {
+  layout=layout||'uniform';
+  var singleObs=[], multiObs=[], gid=0;
+
+  // Two forbidden sets:
+  // 'occupied'  — hexes that are already taken (no overlap ever)
+  // 'lightGap'  — hexes that light obstacles must keep clear (1-hex buffer)
+  // Medium/high obstacles: only check 'occupied' → can touch each other freely
+  // Light obstacles: check both 'occupied' AND 'lightGap' → always isolated
+  var occupied = new Set();
+  var lightGap  = new Set();
+
+  // Spawn zone margins (apply to both sets)
+  function addZone(zone, margin){
+    for(var r=zone.r-margin; r<zone.r+zone.h+margin; r++)
+      for(var c=zone.c-margin; c<zone.c+zone.w+margin; c++){
+        occupied.add(c+','+r); lightGap.add(c+','+r);
+      }
   }
-  return obstacles;
+  addZone(spawnAlly,2); addZone(spawnEnemy,2);
+  for(var c=0;c<cols;c++){
+    occupied.add(c+',0'); occupied.add(c+','+(rows-1));
+    lightGap.add(c+',0'); lightGap.add(c+','+(rows-1));
+  }
+  for(var r=0;r<rows;r++){
+    occupied.add('0,'+r); occupied.add((cols-1)+','+r);
+    lightGap.add('0,'+r); lightGap.add((cols-1)+','+r);
+  }
+
+  function isWall(c,r){ return c<0||r<0||c>=cols||r>=rows||map[r][c].type==='wall'; }
+
+  // Hex neighbors (offset coords, no scenario ref needed here)
+  function neighbors6(c,r){
+    var dirs=c%2===0
+      ?[[1,0],[-1,0],[0,-1],[0,1],[1,-1],[-1,-1]]
+      :[[1,0],[-1,0],[0,-1],[0,1],[1,1],[-1,1]];
+    return dirs.map(function(d){return {c:c+d[0],r:r+d[1]};})
+               .filter(function(n){return n.c>=0&&n.r>=0&&n.c<cols&&n.r<rows;});
+  }
+
+  // ── MULTI-HEX (medium / high) ─────────────────────────────────────
+  // No gap buffer — medium/high can be placed adjacent to each other.
+  // Cluster probability: 50% chance to try placing next to existing multi obstacle.
+  function tryPlaceMulti(palette, pattern, count){
+    for(var i=0;i<count;i++){
+      var placed=false, attempts=0;
+      while(!placed && attempts++<400){
+        var ac, ar;
+        ac=2+2*Math.floor(Math.random()*Math.floor((cols-4)/2));
+        ar=2+Math.floor(Math.random()*(rows-4));
+        var hexes=pattern.map(function(o){return {c:ac+o[0],r:ar+o[1]};});
+        var ok=hexes.every(function(h){
+          return !isWall(h.c,h.r)
+            && !occupied.has(h.c+','+h.r)
+            && !lightGap.has(h.c+','+h.r); // respect gap buffer
+        });
+        if(!ok) continue;
+        var tmpl=palette[Math.floor(Math.random()*palette.length)];
+        var id='mg'+(gid++);
+        // Mark occupied + 1-hex gap buffer (same as light — all obstacles isolated)
+        hexes.forEach(function(h){
+          occupied.add(h.c+','+h.r);
+          lightGap.add(h.c+','+h.r);
+          // 1-hex gap so next obstacle can't be placed touching this one
+          neighbors6(h.c,h.r).forEach(function(n){ lightGap.add(n.c+','+n.r); });
+        });
+        multiObs.push({id:id,type:tmpl.type,cover:tmpl.cover,
+                       label:tmpl.label,members:hexes});
+        placed=true;
+      }
+    }
+  }
+
+  // ── SINGLE-HEX (light) ────────────────────────────────────────────
+  // Light obstacles get a 1-hex gap buffer — they always stand alone.
+  function tryPlaceSingle(palette, count){
+    for(var i=0;i<count;i++){
+      var placed=false, attempts=0;
+      while(!placed && attempts++<250){
+        var c=1+Math.floor(Math.random()*(cols-2));
+        var r=1+Math.floor(Math.random()*(rows-2));
+        // Light must check BOTH occupied AND lightGap
+        if(isWall(c,r)||occupied.has(c+','+r)||lightGap.has(c+','+r)) continue;
+        var tmpl=palette[Math.floor(Math.random()*palette.length)];
+        // Mark the hex as occupied
+        occupied.add(c+','+r);
+        // Add 1-hex gap buffer to lightGap (so next light can't be adjacent)
+        lightGap.add(c+','+r);
+        neighbors6(c,r).forEach(function(n){ lightGap.add(n.c+','+n.r); });
+        singleObs.push({c:c,r:r,type:tmpl.type,cover:tmpl.cover,label:tmpl.label});
+        placed=true;
+      }
+    }
+  }
+
+  // ── LAYOUT STRATEGIES ─────────────────────────────────────────────
+  if(layout==='crown'){
+    // Rey de la Colina: clear center zone, ring of cover around it
+    var cC=Math.floor(cols/2), cR=Math.floor(rows/2);
+    for(var cr=-3;cr<=3;cr++) for(var cc=-3;cc<=3;cc++){
+      if(Math.abs(cr)+Math.abs(cc)<=4){
+        occupied.add((cC+cc)+','+(cR+cr));
+        lightGap.add((cC+cc)+','+(cR+cr));
+      }
+    }
+    tryPlaceMulti(highPal, HIGH_6_PATTERN, highN);
+    tryPlaceMulti(medPal,  MED_4_PATTERN,  medN);
+    tryPlaceSingle(lightPal, lightN);
+  }
+  else if(layout==='asymmetric'){
+    // Supervivencia: heavy cover ally side, open enemy side
+    // Bias multi placement toward ally third by temporarily restricting range
+    var allyMax=Math.floor(cols*0.45);
+    var origFn=tryPlaceMulti;
+    // Place high/med in ally half (cols 1..allyMax)
+    function tryPlaceMultiBiased(palette, pattern, count){
+      for(var i=0;i<count;i++){
+        var placed=false, attempts=0;
+        while(!placed && attempts++<400){
+          var ac=2+2*Math.floor(Math.random()*Math.floor(allyMax/2));
+          var ar=2+Math.floor(Math.random()*(rows-4));
+          var hexes=pattern.map(function(o){return {c:ac+o[0],r:ar+o[1]};});
+          var ok=hexes.every(function(h){
+            return !isWall(h.c,h.r)
+              && !occupied.has(h.c+','+h.r)
+              && !lightGap.has(h.c+','+h.r);
+          });
+          if(!ok) continue;
+          var tmpl=palette[Math.floor(Math.random()*palette.length)];
+          var id='mg'+(gid++);
+          hexes.forEach(function(h){
+            occupied.add(h.c+','+h.r); lightGap.add(h.c+','+h.r);
+            neighbors6(h.c,h.r).forEach(function(n){ lightGap.add(n.c+','+n.r); });
+          });
+          multiObs.push({id:id,type:tmpl.type,cover:tmpl.cover,
+                         label:tmpl.label,members:hexes});
+          placed=true;
+        }
+      }
+    }
+    tryPlaceMultiBiased(highPal, HIGH_6_PATTERN, highN);
+    tryPlaceMultiBiased(medPal,  MED_4_PATTERN,  medN);
+    tryPlaceSingle(lightPal, lightN);
+  }
+  else if(layout==='clusters'){
+    // Superioridad: medium obstacles cluster aggressively (clustering prob → 80%)
+    // Override cluster probability inline by calling tryPlaceMulti which already
+    // handles 50% clustering. Call multi twice to get extra grouping effect.
+    tryPlaceMulti(highPal, HIGH_6_PATTERN, highN);
+    // Place med obstacles with higher cluster tendency
+    for(var mi=0;mi<medN;mi++){
+      var placed=false, att=0;
+      while(!placed&&att++<400){
+        var ac, ar;
+        ac=2+2*Math.floor(Math.random()*Math.floor((cols-4)/2));
+        ar=2+Math.floor(Math.random()*(rows-4));
+        var hexes2=MED_4_PATTERN.map(function(o){return {c:ac+o[0],r:ar+o[1]};});
+        var ok2=hexes2.every(function(h){
+          return !isWall(h.c,h.r)&&!occupied.has(h.c+','+h.r)&&!lightGap.has(h.c+','+h.r);
+        });
+        if(!ok2) continue;
+        var tmpl2=medPal[Math.floor(Math.random()*medPal.length)];
+        var id2='mg'+(gid++);
+        hexes2.forEach(function(h){
+          occupied.add(h.c+','+h.r); lightGap.add(h.c+','+h.r);
+          neighbors6(h.c,h.r).forEach(function(n){ lightGap.add(n.c+','+n.r); });
+        });
+        multiObs.push({id:id2,type:tmpl2.type,cover:tmpl2.cover,
+                       label:tmpl2.label,members:hexes2});
+        placed=true;
+      }
+    }
+    tryPlaceSingle(lightPal, lightN);
+  }
+  else{
+    // uniform (Confrontación): spread evenly, 50% cluster chance
+    tryPlaceMulti(highPal, HIGH_6_PATTERN, highN);
+    tryPlaceMulti(medPal,  MED_4_PATTERN,  medN);
+    tryPlaceSingle(lightPal, lightN);
+  }
+
+  return {single:singleObs, multi:multiObs};
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   GAME MODES
+   ═══════════════════════════════════════════════════════════════ */
+var MODE_DEFS = {
+  confrontacion: {
+    name:'Confrontación',
+    sub:'Eliminar todas las fuerzas enemigas',
+    icon:'⚔',
+    color:'#cc4040',
+    objective:'eliminate_all',
+    desc:'Victoria total. Ninguna unidad enemiga debe quedar en pie.',
+    obsLayout:'uniform',   // spread evenly, no special zone
+    lightMult:1.0, medMult:1.0, highMult:1.0,
+  },
+  superioridad: {
+    name:'Superioridad',
+    sub:'Eliminar al 75% de las fuerzas enemigas',
+    icon:'★',
+    color:'#cc8820',
+    objective:'eliminate_75',
+    desc:'Superioridad táctica. El 25% restante puede replegarse.',
+    obsLayout:'clusters',  // grouped cover pockets for last stand
+    lightMult:0.9, medMult:1.4, highMult:0.8,
+  },
+  rey_colina: {
+    name:'Rey de la Colina',
+    sub:'Mantener la zona central 5 rondas',
+    icon:'🏴',
+    color:'#6a50cc',
+    objective:'capture',
+    desc:'Controla el punto central. Quien lo mantenga 5 rondas sin rival, gana.',
+    obsLayout:'crown',     // ring of cover around center, flanks open
+    lightMult:0.7, medMult:1.5, highMult:1.3,
+  },
+  supervivencia: {
+    name:'Supervivencia',
+    sub:'Aguantar 10 rondas',
+    icon:'🛡',
+    color:'#2a8a50',
+    objective:'survive',
+    desc:'Resiste la ofensiva. Si alguna unidad aliada sigue viva al turno 10, gana.',
+    obsLayout:'asymmetric', // ally side dense, enemy side open
+    lightMult:0.8, medMult:1.2, highMult:1.5,
+  },
+};
 
 var ROOM_DEFS = {
   sala: {
     name:'Sala de Estar', icon:'🛋',
-    desc:'Gran sala con obstáculos aleatorios.',
+    desc:'Gran sala con sofás y mueble de TV.',
     objective:'eliminate_all',
     cols:32, rows:28,
     floor:function(c,r){return (c+r)%2===0?'wood':'wood2';},
     walls:[[0,0,32,1],[0,27,32,1],[0,0,1,28],[31,0,1,28],[14,8,4,1],[14,19,4,1]],
-    obstaclePalette:[
-      {w:2,h:1,type:'sofa',cover:'medium',label:'sofá'},
-      {w:1,h:1,type:'sofa',cover:'medium',label:'sofá'},
-      {w:2,h:1,type:'tv_stand',cover:'heavy',label:'TV'},
-      {w:1,h:1,type:'cabinet',cover:'heavy',label:'vitrina'},
-      {w:1,h:1,type:'armchair',cover:'light',label:'sillón'},
-      {w:1,h:1,type:'armchair',cover:'light',label:'sillón'},
-      {w:1,h:1,type:'nightstand',cover:'light',label:'mesita'},
+    lightPalette:[
+      {type:'armchair',cover:'light',label:'sillón'},
+      {type:'nightstand',cover:'light',label:'mesita'},
+      {type:'box',cover:'light',label:'cajas'},
     ],
-    obstacleCount:28,
-    spawnZoneAlly: {c:1,r:1,w:6,h:26},
-    spawnZoneEnemy:{c:25,r:1,w:6,h:26}
+    medPalette:[
+      {type:'sofa',cover:'medium',label:'sofá'},
+      {type:'dining_chair_group',cover:'medium',label:'sillas'},
+    ],
+    highPalette:[
+      {type:'tv_stand',cover:'high',label:'mueble TV'},
+      {type:'cabinet',cover:'high',label:'vitrina'},
+    ],
+    lightCount:18, medCount:5, highCount:2,
+    spawnZoneAlly: {c:1,r:1,w:4,h:26},
+    spawnZoneEnemy:{c:27,r:1,w:4,h:26}
   },
   cocina: {
     name:'Cocina', icon:'🍳',
@@ -757,17 +965,23 @@ var ROOM_DEFS = {
     cols:32, rows:28,
     floor:function(c,r){return (c+r)%2===0?'tile':'tile2';},
     walls:[[0,0,32,1],[0,27,32,1],[0,0,1,28],[31,0,1,28]],
-    obstaclePalette:[
-      {w:3,h:1,type:'counter',cover:'heavy',label:'mesón'},
-      {w:2,h:1,type:'counter',cover:'heavy',label:'mesón'},
-      {w:1,h:2,type:'fridge',cover:'heavy',label:'nevera'},
-      {w:2,h:2,type:'island',cover:'heavy',label:'isla'},
-      {w:1,h:1,type:'barrel',cover:'light',label:'barril'},
-      {w:1,h:1,type:'toolbox',cover:'light',label:'cajón'},
+    lightPalette:[
+      {type:'barrel',cover:'light',label:'barril'},
+      {type:'toolbox',cover:'light',label:'cajón'},
+      {type:'box',cover:'light',label:'cajas'},
     ],
-    obstacleCount:26,
-    spawnZoneAlly: {c:1,r:1,w:6,h:26},
-    spawnZoneEnemy:{c:25,r:1,w:6,h:26}
+    medPalette:[
+      {type:'desk',cover:'medium',label:'mesa cocina'},
+      {type:'dining_chair_group',cover:'medium',label:'sillas'},
+    ],
+    highPalette:[
+      {type:'counter',cover:'high',label:'mesón'},
+      {type:'fridge',cover:'high',label:'nevera'},
+      {type:'island',cover:'high',label:'isla'},
+    ],
+    lightCount:20, medCount:4, highCount:3,
+    spawnZoneAlly: {c:1,r:1,w:4,h:26},
+    spawnZoneEnemy:{c:27,r:1,w:4,h:26}
   },
   comedor: {
     name:'Comedor', icon:'🪑',
@@ -776,17 +990,22 @@ var ROOM_DEFS = {
     cols:32, rows:28,
     floor:function(c,r){return 'parquet';},
     walls:[[0,0,32,1],[0,27,32,1],[0,0,1,28],[31,0,1,28]],
-    obstaclePalette:[
-      {w:3,h:2,type:'dining_table',cover:'heavy',label:'mesa'},
-      {w:2,h:1,type:'dining_table',cover:'heavy',label:'mesa'},
-      {w:1,h:1,type:'dining_chair_group',cover:'medium',label:'sillas'},
-      {w:1,h:1,type:'cabinet',cover:'heavy',label:'aparador'},
-      {w:2,h:1,type:'sofa',cover:'medium',label:'sofá'},
-      {w:1,h:1,type:'armchair',cover:'light',label:'sillón'},
+    lightPalette:[
+      {type:'armchair',cover:'light',label:'sillón'},
+      {type:'chair',cover:'light',label:'silla'},
     ],
-    obstacleCount:24,
-    spawnZoneAlly: {c:1,r:1,w:5,h:26},
-    spawnZoneEnemy:{c:26,r:1,w:5,h:26}
+    medPalette:[
+      {type:'sofa',cover:'medium',label:'sofá'},
+      {type:'dining_chair_group',cover:'medium',label:'sillas'},
+      {type:'trunk',cover:'medium',label:'baúl'},
+    ],
+    highPalette:[
+      {type:'dining_table',cover:'high',label:'mesa'},
+      {type:'cabinet',cover:'high',label:'aparador'},
+    ],
+    lightCount:18, medCount:5, highCount:2,
+    spawnZoneAlly: {c:1,r:1,w:4,h:26},
+    spawnZoneEnemy:{c:27,r:1,w:4,h:26}
   },
   cochera: {
     name:'Cochera', icon:'🚗',
@@ -795,18 +1014,22 @@ var ROOM_DEFS = {
     cols:36, rows:28,
     floor:function(c,r){return 'concrete';},
     walls:[[0,0,36,1],[0,27,36,1],[0,0,1,28],[35,0,1,28]],
-    obstaclePalette:[
-      {w:3,h:2,type:'car',cover:'heavy',label:'auto'},
-      {w:2,h:2,type:'car',cover:'heavy',label:'auto'},
-      {w:2,h:1,type:'barrel',cover:'light',label:'barriles'},
-      {w:1,h:1,type:'barrel',cover:'light',label:'barril'},
-      {w:1,h:2,type:'toolbox',cover:'light',label:'cajón'},
-      {w:2,h:1,type:'counter',cover:'heavy',label:'banco'},
-      {w:1,h:1,type:'box',cover:'light',label:'cajas'},
+    lightPalette:[
+      {type:'barrel',cover:'light',label:'barril'},
+      {type:'box',cover:'light',label:'cajas'},
+      {type:'toolbox',cover:'light',label:'cajón'},
     ],
-    obstacleCount:30,
-    spawnZoneAlly: {c:1,r:1,w:6,h:26},
-    spawnZoneEnemy:{c:29,r:1,w:6,h:26}
+    medPalette:[
+      {type:'trunk',cover:'medium',label:'cajón grande'},
+      {type:'desk',cover:'medium',label:'banco trabajo'},
+    ],
+    highPalette:[
+      {type:'car',cover:'high',label:'auto'},
+      {type:'counter',cover:'high',label:'banco'},
+    ],
+    lightCount:22, medCount:5, highCount:3,
+    spawnZoneAlly: {c:1,r:1,w:4,h:26},
+    spawnZoneEnemy:{c:31,r:1,w:4,h:26}
   },
   patio: {
     name:'Patio', icon:'🌿',
@@ -815,17 +1038,22 @@ var ROOM_DEFS = {
     cols:36, rows:30,
     floor:function(c,r){return (c+r)%3===0?'grass2':'grass';},
     walls:[[0,0,36,1],[0,29,36,1],[0,0,1,30],[35,0,1,30]],
-    obstaclePalette:[
-      {w:2,h:1,type:'hedge',cover:'medium',label:'seto'},
-      {w:1,h:1,type:'hedge',cover:'light',label:'seto'},
-      {w:1,h:2,type:'hedge',cover:'medium',label:'seto'},
-      {w:1,h:1,type:'barrel',cover:'light',label:'barril'},
-      {w:2,h:2,type:'hedge',cover:'medium',label:'arbusto'},
-      {w:1,h:1,type:'box',cover:'light',label:'caja'},
+    lightPalette:[
+      {type:'hedge',cover:'light',label:'seto'},
+      {type:'barrel',cover:'light',label:'barril'},
+      {type:'box',cover:'light',label:'caja'},
     ],
-    obstacleCount:35,
-    spawnZoneAlly: {c:1,r:1,w:7,h:28},
-    spawnZoneEnemy:{c:28,r:1,w:7,h:28}
+    medPalette:[
+      {type:'wall_low',cover:'medium',label:'muro bajo'},
+      {type:'sofa',cover:'medium',label:'mueble exterior'},
+    ],
+    highPalette:[
+      {type:'column',cover:'high',label:'columna'},
+      {type:'car',cover:'high',label:'auto'},
+    ],
+    lightCount:24, medCount:6, highCount:2,
+    spawnZoneAlly: {c:1,r:1,w:4,h:28},
+    spawnZoneEnemy:{c:31,r:1,w:4,h:28}
   },
   cuarto: {
     name:'Dormitorio', icon:'🛏',
@@ -834,17 +1062,21 @@ var ROOM_DEFS = {
     cols:30, rows:26,
     floor:function(c,r){return 'carpet';},
     walls:[[0,0,30,1],[0,25,30,1],[0,0,1,26],[29,0,1,26],[12,10,6,1]],
-    obstaclePalette:[
-      {w:3,h:1,type:'bed',cover:'medium',label:'cama'},
-      {w:2,h:1,type:'bed',cover:'medium',label:'cama'},
-      {w:1,h:2,type:'wardrobe',cover:'heavy',label:'armario'},
-      {w:1,h:1,type:'nightstand',cover:'light',label:'mesita'},
-      {w:1,h:1,type:'desk',cover:'medium',label:'escritorio'},
-      {w:1,h:1,type:'armchair',cover:'light',label:'sillón'},
+    lightPalette:[
+      {type:'nightstand',cover:'light',label:'mesita'},
+      {type:'armchair',cover:'light',label:'sillón'},
     ],
-    obstacleCount:26,
-    spawnZoneAlly: {c:1,r:1,w:5,h:24},
-    spawnZoneEnemy:{c:24,r:1,w:5,h:24}
+    medPalette:[
+      {type:'bed',cover:'medium',label:'cama'},
+      {type:'desk',cover:'medium',label:'escritorio'},
+    ],
+    highPalette:[
+      {type:'wardrobe',cover:'high',label:'armario'},
+      {type:'cabinet',cover:'high',label:'aparador'},
+    ],
+    lightCount:18, medCount:5, highCount:2,
+    spawnZoneAlly: {c:1,r:1,w:4,h:24},
+    spawnZoneEnemy:{c:25,r:1,w:4,h:24}
   },
   atico: {
     name:'Ático', icon:'📦',
@@ -853,20 +1085,23 @@ var ROOM_DEFS = {
     cols:32, rows:28,
     floor:function(c,r){return 'concrete';},
     walls:[[0,0,32,1],[0,27,32,1],[0,0,1,28],[31,0,1,28],[6,6,1,16],[25,6,1,16]],
-    obstaclePalette:[
-      {w:2,h:1,type:'trunk',cover:'medium',label:'baúl'},
-      {w:1,h:1,type:'trunk',cover:'medium',label:'baúl'},
-      {w:1,h:2,type:'column',cover:'heavy',label:'columna'},
-      {w:1,h:1,type:'column',cover:'heavy',label:'columna'},
-      {w:2,h:2,type:'box',cover:'light',label:'cajas'},
-      {w:1,h:1,type:'box',cover:'light',label:'caja'},
-      {w:1,h:1,type:'barrel',cover:'light',label:'barril'},
+    lightPalette:[
+      {type:'barrel',cover:'light',label:'barril'},
+      {type:'box',cover:'light',label:'caja'},
     ],
-    obstacleCount:30,
-    spawnZoneAlly: {c:1,r:1,w:5,h:26},
-    spawnZoneEnemy:{c:26,r:1,w:5,h:26}
+    medPalette:[
+      {type:'trunk',cover:'medium',label:'baúl'},
+      {type:'desk',cover:'medium',label:'escritorio'},
+    ],
+    highPalette:[
+      {type:'column',cover:'high',label:'columna'},
+      {type:'shelf',cover:'high',label:'estante'},
+    ],
+    lightCount:20, medCount:5, highCount:3,
+    spawnZoneAlly: {c:1,r:1,w:4,h:26},
+    spawnZoneEnemy:{c:27,r:1,w:4,h:26}
   }
-};
+};;
 
 // Obstacle colors
 var OBS_COLORS = {
@@ -884,7 +1119,7 @@ var FLOOR_COLORS = {
 /* ═══════════════════════════════════════════════════════════════
    SECTION 9: MAP BUILDING
    ═══════════════════════════════════════════════════════════════ */
-function buildMap(roomKey) {
+function buildMap(roomKey, modeKey) {
   var rd = ROOM_DEFS[roomKey];
   var map = [];
   for (var r=0; r<rd.rows; r++) {
@@ -898,18 +1133,32 @@ function buildMap(roomKey) {
       if(tr<rd.rows&&tc<rd.cols) map[tr][tc]={type:'wall',floor:'',obs:null};
     }
   });
-  // Random obstacles (avoid spawn zones)
-  var obs = generateObstacles(
-    rd.cols, rd.rows,
+  // Mode-aware obstacle generation
+  var md=MODE_DEFS[modeKey]||MODE_DEFS['confrontacion'];
+  var baseLight=rd.lightCount||12, baseMed=rd.medCount||4, baseHigh=rd.highCount||2;
+  var lightN=Math.round(baseLight*md.lightMult);
+  var medN  =Math.round(baseMed  *md.medMult);
+  var highN =Math.round(baseHigh *md.highMult);
+  var obsResult = generateObstacles(
+    map, rd.cols, rd.rows,
     rd.spawnZoneAlly, rd.spawnZoneEnemy,
-    rd.obstaclePalette, rd.obstacleCount
+    rd.lightPalette||[{type:'barrel',cover:'light',label:'barril'}],
+    rd.medPalette  ||[{type:'sofa',  cover:'medium',label:'sofá'}],
+    rd.highPalette ||[{type:'counter',cover:'high',label:'mesón'}],
+    lightN, medN, highN,
+    md.obsLayout,
+    {cols:rd.cols, rows:rd.rows}
   );
-  obs.forEach(function(o) {
-    for (var dr=0;dr<o.h;dr++) for (var dc=0;dc<o.w;dc++) {
-      var tr=o.r+dr,tc=o.c+dc;
-      if(tr<rd.rows&&tc<rd.cols&&map[tr][tc].type==='floor')
-        map[tr][tc].obs = {type:o.type,cover:o.cover,label:o.label};
-    }
+  // Apply single-hex obstacles
+  obsResult.single.forEach(function(o){
+    if(map[o.r][o.c].type==='floor') map[o.r][o.c].obs={type:o.type,cover:o.cover,label:o.label};
+  });
+  // Apply multi-hex obstacles
+  obsResult.multi.forEach(function(mo){
+    mo.members.forEach(function(h){
+      if(h.r>=0&&h.r<rd.rows&&h.c>=0&&h.c<rd.cols&&map[h.r][h.c].type==='floor')
+        map[h.r][h.c].obs={type:mo.type,cover:mo.cover,label:mo.label,groupId:mo.id};
+    });
   });
   // Spawn zones
   var ally=[], enemy=[];
@@ -924,7 +1173,8 @@ function buildMap(roomKey) {
   }
   return {roomKey,name:rd.name,cols:rd.cols,rows:rd.rows,map,
           spawnAlly:ally,spawnEnemy:enemy,
-          objective:rd.objective};
+          objective:rd.objective,
+          multiObs:obsResult.multi};
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -932,6 +1182,7 @@ function buildMap(roomKey) {
    ═══════════════════════════════════════════════════════════════ */
 var G = {
   scenario:null, units:[], deployedUnits:[], pointsLeft:STARTING_POINTS,
+  selectedMode:'confrontacion',
   selected:null, mode:'select', turn:'ally', round:1,
   moveTiles:[], attackTiles:[],
   visibleCells:new Set(), visibleEnemyIds:new Set(),
@@ -1013,21 +1264,49 @@ function drawBaseMap(ctx, sc) {
       drawHex(ctx,p.x,p.y,TILE-0.5); ctx.stroke();
     }
   }
-  // Obstacles
-  sc.rows&&sc.map&&sc.map.forEach&&sc.map.forEach(function(row,r){
+    // ── Obstacle rendering — multi-hex and single-hex ──────────────────
+  var processedGroups=new Set();
+
+  // Pass A: dark hex backgrounds for ALL obstacles
+  sc.map.forEach(function(row,r){
     row.forEach(function(t,c){
       if(!t.obs||t.type==='wall') return;
       var p=hexToPixel(c,r);
-      ctx.fillStyle=OBS_COLORS[t.obs.type]||'#5a5a4a';
-      drawHex(ctx,p.x,p.y,TILE-3); ctx.fill();
-      if(isTall(t.obs.type)||isMed(t.obs.type)){
-        ctx.strokeStyle=isTall(t.obs.type)?'rgba(255,255,255,.15)':'rgba(255,220,120,.12)';
-        ctx.lineWidth=1.5; drawHex(ctx,p.x,p.y,TILE-3); ctx.stroke();
-      }
-      ctx.fillStyle='rgba(0,0,0,.65)';
-      ctx.font='bold '+(TILE<36?6:8)+'px monospace';
-      ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.fillText(t.obs.label||t.obs.type, p.x, p.y);
+      ctx.fillStyle='#0d0e09';
+      drawHex(ctx,p.x,p.y,TILE-1.5); ctx.fill();
+      // Level border tint
+      var borderCol=isTall(t.obs.type)?'rgba(220,80,60,.35)':
+                    isMed(t.obs.type)?'rgba(220,160,60,.25)':'rgba(80,180,80,.2)';
+      ctx.strokeStyle=borderCol; ctx.lineWidth=1.5;
+      drawHex(ctx,p.x,p.y,TILE-1.5); ctx.stroke();
+    });
+  });
+
+  // Pass B: multi-hex obstacle art — scale to fill bounding box
+  if(sc.multiObs){
+    sc.multiObs.forEach(function(mo){
+      var pixels=mo.members.map(function(m){ return hexToPixel(m.c,m.r); });
+      var xs=pixels.map(function(p){return p.x;}),ys=pixels.map(function(p){return p.y;});
+      var minX=Math.min.apply(null,xs)-TILE, maxX=Math.max.apply(null,xs)+TILE;
+      var minY=Math.min.apply(null,ys)-TILE*0.866, maxY=Math.max.apply(null,ys)+TILE*0.866;
+      var ccx=(minX+maxX)/2, ccy=(minY+maxY)/2;
+      var bw=maxX-minX, bh=maxY-minY;
+      // Scale art to fill ~90% of the cluster bounding box
+      var Ts=Math.min(bw,bh)*1.15;
+      ctx.save();
+      drawObsSilhouette(ctx,mo.type,ccx,ccy,Ts);
+      ctx.restore();
+    });
+  }
+
+  // Pass C: single-hex light obstacles — T*1.9 to fill the hex
+  sc.map.forEach(function(row,r){
+    row.forEach(function(t,c){
+      if(!t.obs||t.obs.groupId||t.type==='wall') return;
+      var p=hexToPixel(c,r);
+      ctx.save();
+      drawObsSilhouette(ctx,t.obs.type,p.x,p.y,TILE*1.9);
+      ctx.restore();
     });
   });
 }
@@ -1111,6 +1390,277 @@ function drawUnit(ctx, u) {
   }
 }
 
+
+// ── Obstacle silhouettes — canvas 2D paths ────────────────────────────
+function drawObsSilhouette(c, type, cx, cy, T) {
+  var HW=T*1.0, HH=T*0.86;
+  switch(type) {
+
+    case 'sofa':
+      c.fillStyle='#5a4035';
+      c.beginPath(); c.roundRect(cx-HW*.38,cy-HH*.12,HW*.76,HH*.28,3); c.fill();
+      c.fillStyle='#7a5848';
+      c.beginPath(); c.roundRect(cx-HW*.38,cy-HH*.26,HW*.18,HH*.32,3); c.fill();
+      c.beginPath(); c.roundRect(cx+HW*.20,cy-HH*.26,HW*.18,HH*.32,3); c.fill();
+      c.fillStyle='#3a2018';
+      c.beginPath(); c.roundRect(cx-HW*.38,cy+HH*.14,HW*.76,HH*.08,2); c.fill();
+      break;
+
+    case 'bed':
+      c.fillStyle='#4a3a5a';
+      c.beginPath(); c.roundRect(cx-HW*.38,cy-HH*.32,HW*.76,HH*.58,3); c.fill();
+      c.fillStyle='#2a1a3a';
+      c.beginPath(); c.roundRect(cx-HW*.38,cy-HH*.32,HW*.20,HH*.58,3); c.fill();
+      c.fillStyle='#7a6a9a';
+      c.beginPath(); c.roundRect(cx-HW*.14,cy-HH*.24,HW*.52,HH*.42,4); c.fill();
+      c.fillStyle='#9a8ab0';
+      c.beginPath(); c.arc(cx-HW*.02,cy-HH*.04,HH*.13,0,Math.PI*2); c.fill();
+      break;
+
+    case 'counter':
+      c.fillStyle='#7a6040';
+      c.beginPath(); c.roundRect(cx-HW*.44,cy-HH*.22,HW*.88,HH*.44,2); c.fill();
+      c.fillStyle='#9a8060';
+      c.beginPath(); c.roundRect(cx-HW*.44,cy-HH*.28,HW*.88,HH*.10,2); c.fill();
+      c.strokeStyle='rgba(0,0,0,.3)'; c.lineWidth=1;
+      [-1,0,1].forEach(function(i){
+        c.beginPath(); c.arc(cx+i*HW*.24,cy,HH*.04,0,Math.PI*2); c.stroke();
+      });
+      break;
+
+    case 'fridge':
+      c.fillStyle='#7a8a9a';
+      c.beginPath(); c.roundRect(cx-HW*.24,cy-HH*.40,HW*.48,HH*.76,4); c.fill();
+      c.fillStyle='rgba(255,255,255,.10)';
+      c.beginPath(); c.roundRect(cx-HW*.20,cy-HH*.36,HW*.40,HH*.30,2); c.fill();
+      c.beginPath(); c.roundRect(cx-HW*.20,cy-HH*.02,HW*.40,HH*.30,2); c.fill();
+      c.fillStyle='rgba(180,220,240,.5)';
+      c.beginPath(); c.roundRect(cx+HW*.14,cy-HH*.22,HW*.04,HH*.10,1); c.fill();
+      break;
+
+    case 'island':
+      c.fillStyle='#8a7050';
+      c.beginPath(); c.roundRect(cx-HW*.44,cy-HH*.30,HW*.88,HH*.50,4); c.fill();
+      c.fillStyle='#aca090';
+      c.beginPath(); c.roundRect(cx-HW*.44,cy-HH*.36,HW*.88,HH*.12,3); c.fill();
+      c.fillStyle='rgba(0,0,0,.15)';
+      [-3,-1,1,3].forEach(function(i){
+        c.beginPath(); c.arc(cx+i*HW*.12,cy+HH*.04,HH*.04,0,Math.PI*2); c.fill();
+      });
+      break;
+
+    case 'cabinet':
+    case 'shelf':
+      c.fillStyle='#5a4020';
+      c.beginPath(); c.roundRect(cx-HW*.32,cy-HH*.40,HW*.64,HH*.76,3); c.fill();
+      c.strokeStyle='#7a6040'; c.lineWidth=0.6;
+      c.beginPath(); c.moveTo(cx,cy-HH*.40); c.lineTo(cx,cy+HH*.36); c.stroke();
+      [[-HW*.30,-HH*.36,HW*.28,HH*.34],[HW*.02,-HH*.36,HW*.28,HH*.34],
+       [-HW*.30,-HH*.02,HW*.28,HH*.34],[HW*.02,-HH*.02,HW*.28,HH*.34]].forEach(function(r){
+        c.beginPath(); c.roundRect(cx+r[0],cy+r[1],r[2],r[3],2); c.stroke();
+      });
+      c.fillStyle='#c8a050';
+      [-HW*.16,HW*.16].forEach(function(x){
+        [-HH*.19,HH*.15].forEach(function(y){
+          c.beginPath(); c.arc(cx+x,cy+y,HH*.025,0,Math.PI*2); c.fill();
+        });
+      });
+      break;
+
+    case 'dining_table':
+      c.fillStyle='#7a5030';
+      c.beginPath(); c.roundRect(cx-HW*.44,cy-HH*.22,HW*.88,HH*.44,3); c.fill();
+      c.fillStyle='#9a7050';
+      c.beginPath(); c.roundRect(cx-HW*.44,cy-HH*.28,HW*.88,HH*.10,2); c.fill();
+      [-1,1].forEach(function(s){
+        c.fillStyle='#6a4020';
+        c.beginPath(); c.roundRect(cx+s*HW*.32,cy+HH*.20,HW*.08,HH*.18,2); c.fill();
+      });
+      break;
+
+    case 'dining_chair_group':
+      [-HW*.22,0,HW*.22].forEach(function(ox,i){
+        var oy=[-HH*.08,HH*.06,-HH*.08][i];
+        c.fillStyle='#5a3a20';
+        c.beginPath(); c.roundRect(cx+ox-HW*.07,cy+oy-HH*.13,HW*.14,HH*.24,2); c.fill();
+        c.fillStyle='#7a5a38';
+        c.beginPath(); c.roundRect(cx+ox-HW*.09,cy+oy-HH*.15,HW*.18,HH*.07,1); c.fill();
+      });
+      break;
+
+    case 'car':
+      c.fillStyle='#3a4a5a';
+      c.beginPath(); c.roundRect(cx-HW*.44,cy-HH*.18,HW*.88,HH*.36,6); c.fill();
+      c.fillStyle='#2a3a4a';
+      c.beginPath(); c.roundRect(cx-HW*.28,cy-HH*.34,HW*.56,HH*.22,4); c.fill();
+      c.fillStyle='rgba(180,220,255,.32)';
+      c.beginPath(); c.roundRect(cx-HW*.24,cy-HH*.30,HW*.22,HH*.14,2); c.fill();
+      c.beginPath(); c.roundRect(cx+HW*.02,cy-HH*.30,HW*.22,HH*.14,2); c.fill();
+      [-1,1].forEach(function(s){
+        c.fillStyle='#1a2a3a';
+        c.beginPath(); c.arc(cx+s*HW*.28,cy+HH*.15,HH*.11,0,Math.PI*2); c.fill();
+        c.strokeStyle='#5a6a7a'; c.lineWidth=1.5;
+        c.beginPath(); c.arc(cx+s*HW*.28,cy+HH*.15,HH*.07,0,Math.PI*2); c.stroke();
+      });
+      break;
+
+    case 'wardrobe':
+      c.fillStyle='#4a3820';
+      c.beginPath(); c.roundRect(cx-HW*.28,cy-HH*.42,HW*.56,HH*.80,3); c.fill();
+      c.strokeStyle='#6a5838'; c.lineWidth=1;
+      c.beginPath(); c.moveTo(cx,cy-HH*.42); c.lineTo(cx,cy+HH*.38); c.stroke();
+      c.fillStyle='#c0a060';
+      c.beginPath(); c.roundRect(cx-HW*.07,cy-HH*.06,HW*.04,HH*.10,2); c.fill();
+      c.beginPath(); c.roundRect(cx+HW*.03,cy-HH*.06,HW*.04,HH*.10,2); c.fill();
+      break;
+
+    case 'trunk':
+      c.fillStyle='#5a4520';
+      c.beginPath(); c.roundRect(cx-HW*.38,cy-HH*.22,HW*.76,HH*.40,4); c.fill();
+      c.strokeStyle='#8a7040'; c.lineWidth=1.5;
+      c.beginPath(); c.roundRect(cx-HW*.38,cy-HH*.22,HW*.76,HH*.40,4); c.stroke();
+      c.strokeStyle='#4a3510'; c.lineWidth=1;
+      c.beginPath(); c.moveTo(cx-HW*.38,cy-HH*.02); c.lineTo(cx+HW*.38,cy-HH*.02); c.stroke();
+      c.fillStyle='#c8a050';
+      c.beginPath(); c.arc(cx,cy-HH*.02,HH*.04,0,Math.PI*2); c.fill();
+      break;
+
+    case 'desk':
+      c.fillStyle='#6a5535';
+      c.beginPath(); c.roundRect(cx-HW*.40,cy-HH*.26,HW*.80,HH*.18,2); c.fill();
+      [-1,1].forEach(function(s){
+        c.fillStyle='#5a4528';
+        c.beginPath(); c.roundRect(cx+s*HW*.30,cy-HH*.08,HW*.08,HH*.32,2); c.fill();
+      });
+      break;
+
+    case 'column':
+      c.fillStyle='#7a7a6a';
+      c.beginPath(); c.roundRect(cx-HW*.15,cy-HH*.42,HW*.30,HH*.84,2); c.fill();
+      c.fillStyle='#9a9a8a';
+      c.beginPath(); c.roundRect(cx-HW*.20,cy-HH*.42,HW*.40,HH*.09,2); c.fill();
+      c.beginPath(); c.roundRect(cx-HW*.20,cy+HH*.33,HW*.40,HH*.09,2); c.fill();
+      c.fillStyle='rgba(0,0,0,.08)';
+      [-2,-1,0,1,2].forEach(function(i){
+        c.beginPath(); c.roundRect(cx-HW*.13+i*HW*.06,cy-HH*.32,HW*.02,HH*.64,1); c.fill();
+      });
+      break;
+
+    case 'tv_stand':
+      c.fillStyle='#2a2a3a';
+      c.beginPath(); c.roundRect(cx-HW*.44,cy-HH*.26,HW*.88,HH*.42,3); c.fill();
+      c.fillStyle='rgba(80,140,200,.22)';
+      c.beginPath(); c.roundRect(cx-HW*.40,cy-HH*.22,HW*.80,HH*.30,2); c.fill();
+      [-1,1].forEach(function(s){
+        c.fillStyle='#1a1a2a';
+        c.beginPath(); c.roundRect(cx+s*HW*.30,cy+HH*.16,HW*.08,HH*.16,1); c.fill();
+      });
+      break;
+
+    case 'barrel':
+      c.fillStyle='#5a4a2a';
+      c.beginPath(); c.ellipse(cx,cy,HW*.22,HH*.32,0,0,Math.PI*2); c.fill();
+      c.strokeStyle='#3a2a10'; c.lineWidth=2;
+      [-HH*.14,0,HH*.14].forEach(function(y){
+        c.beginPath(); c.ellipse(cx,cy+y,HW*.22,HH*.07,0,0,Math.PI*2); c.stroke();
+      });
+      c.strokeStyle='#8a7a4a'; c.lineWidth=1;
+      c.beginPath(); c.ellipse(cx,cy-HH*.28,HW*.20,HH*.05,0,0,Math.PI*2); c.stroke();
+      break;
+
+    case 'toolbox':
+      c.fillStyle='#bb3818';
+      c.beginPath(); c.roundRect(cx-HW*.32,cy-HH*.18,HW*.64,HH*.36,3); c.fill();
+      c.fillStyle='#991808';
+      c.beginPath(); c.roundRect(cx-HW*.32,cy-HH*.04,HW*.64,HH*.22,3); c.fill();
+      c.strokeStyle='#999'; c.lineWidth=2;
+      c.beginPath(); c.moveTo(cx-HW*.12,cy-HH*.18);
+      c.bezierCurveTo(cx-HW*.12,cy-HH*.36,cx+HW*.12,cy-HH*.36,cx+HW*.12,cy-HH*.18); c.stroke();
+      c.fillStyle='#ccc';
+      c.beginPath(); c.roundRect(cx-HW*.06,cy-HH*.02,HW*.12,HH*.04,1); c.fill();
+      break;
+
+    case 'nightstand':
+      c.fillStyle='#6a5030';
+      c.beginPath(); c.roundRect(cx-HW*.22,cy-HH*.28,HW*.44,HH*.52,3); c.fill();
+      c.strokeStyle='#8a7050'; c.lineWidth=1;
+      c.beginPath(); c.moveTo(cx-HW*.22,cy-HH*.04); c.lineTo(cx+HW*.22,cy-HH*.04); c.stroke();
+      c.fillStyle='#c0a060';
+      c.beginPath(); c.arc(cx,cy-HH*.16,HH*.03,0,Math.PI*2); c.fill();
+      c.beginPath(); c.arc(cx,cy+HH*.10,HH*.03,0,Math.PI*2); c.fill();
+      break;
+
+    case 'box':
+      [2,1,0].forEach(function(i){
+        c.fillStyle=['#7a6535','#8a7545','#6a5525'][i];
+        c.beginPath(); c.roundRect(cx-HW*.28+i*3,cy-HH*.22+i*3,HW*.52,HH*.42,2); c.fill();
+        c.strokeStyle='rgba(0,0,0,.2)'; c.lineWidth=0.5;
+        c.beginPath(); c.roundRect(cx-HW*.28+i*3,cy-HH*.22+i*3,HW*.52,HH*.42,2); c.stroke();
+      });
+      c.strokeStyle='rgba(0,0,0,.2)'; c.lineWidth=1;
+      c.beginPath(); c.moveTo(cx-HW*.28,cy-HH*.02); c.lineTo(cx+HW*.24,cy-HH*.02); c.stroke();
+      c.beginPath(); c.moveTo(cx-HW*.04,cy-HH*.22); c.lineTo(cx-HW*.04,cy+HH*.18); c.stroke();
+      break;
+
+    case 'armchair':
+      c.fillStyle='#6a4535';
+      c.beginPath(); c.arc(cx,cy,HW*.30,0,Math.PI*2); c.fill();
+      c.fillStyle='#8a5a45';
+      c.beginPath(); c.arc(cx,cy-HH*.04,HW*.22,0,Math.PI*2); c.fill();
+      c.fillStyle='#5a3528';
+      c.beginPath(); c.roundRect(cx-HW*.30,cy-HH*.28,HW*.60,HH*.08,2); c.fill();
+      break;
+
+    case 'chair':
+      // Top-down view: seat + 4 legs + backrest
+      c.fillStyle='#7a5a38';
+      c.beginPath(); c.roundRect(cx-HW*.22,cy-HH*.18,HW*.44,HH*.36,3); c.fill();
+      c.fillStyle='#5a3a20';
+      // Backrest
+      c.beginPath(); c.roundRect(cx-HW*.22,cy-HH*.28,HW*.44,HH*.10,2); c.fill();
+      // 4 legs as small circles
+      c.fillStyle='#3a2010';
+      [[-HW*.16,-HH*.14],[HW*.16,-HH*.14],[-HW*.16,HH*.12],[HW*.16,HH*.12]].forEach(function(p){
+        c.beginPath(); c.arc(cx+p[0],cy+p[1],HW*.05,0,Math.PI*2); c.fill();
+      });
+      break;
+
+    case 'wall_low':
+      c.fillStyle='#7a7060';
+      c.beginPath(); c.roundRect(cx-HW*.44,cy-HH*.12,HW*.88,HH*.24,2); c.fill();
+      [0,1,2,3,4].forEach(function(i){
+        c.fillStyle='#9a9080';
+        c.beginPath(); c.roundRect(cx-HW*.40+i*HW*.19,cy-HH*.10,HW*.16,HH*.09,1); c.fill();
+      });
+      [0,1,2,3].forEach(function(i){
+        c.fillStyle='#8a8070';
+        c.beginPath(); c.roundRect(cx-HW*.30+i*HW*.19,cy+HH*.01,HW*.16,HH*.09,1); c.fill();
+      });
+      break;
+
+    case 'hedge':
+      [0,1,2,3,4,5,6,7].forEach(function(i){
+        var angle=i/8*Math.PI*2;
+        var r2=HW*.24+Math.sin(i*1.3)*HW*.06;
+        c.fillStyle=['#2a5a20','#3a6a28','#1a4a18','#4a7a30'][i%4];
+        c.beginPath();
+        c.arc(cx+r2*Math.cos(angle),cy+r2*Math.sin(angle)*0.75,HH*.15,0,Math.PI*2); c.fill();
+      });
+      c.fillStyle='#1a4a18';
+      c.beginPath(); c.arc(cx,cy,HH*.20,0,Math.PI*2); c.fill();
+      break;
+
+    default:
+      // Fallback: colored hex + label
+      c.fillStyle=OBS_COLORS[type]||'#5a5a4a';
+      drawHex(c,cx,cy,T-5); c.fill();
+      c.fillStyle='rgba(255,255,255,.55)';
+      c.font='bold '+(T<36?6:8)+'px monospace';
+      c.textAlign='center'; c.textBaseline='middle';
+      c.fillText((type||'').slice(0,4).toUpperCase(), cx, cy);
+      break;
+  }
+}
 function renderGame() {
   var cv=document.getElementById('game-canvas');
   var sc=G.scenario;
@@ -1268,6 +1818,7 @@ function renderDeployCanvas() {
    SECTION 12: FOG OF WAR & MOVEMENT
    ═══════════════════════════════════════════════════════════════ */
 function updateFog() {
+  if(MP.enabled){ mpUpdateFog(); return; }
   var sc=G.scenario;
   G.visibleCells=new Set(); G.visibleEnemyIds=new Set();
   var allies=G.units.filter(function(u){return u.team==='ally'&&u.hp>0;});
@@ -1291,7 +1842,7 @@ function getMoves(unit) {
   visited.add(unit.c+','+unit.r);
   while(queue.length){
     var cur=queue.shift();
-    if(cur.steps>0) moves.push({c:cur.c,r:cur.r});
+    if(cur.steps>0&&!cur.occupied) moves.push({c:cur.c,r:cur.r});
     if(cur.steps>=unit.move) continue;
     hexNeighbors(cur.c,cur.r,sc).forEach(function(n){
       var key=n.c+','+n.r;
@@ -1299,8 +1850,21 @@ function getMoves(unit) {
       visited.add(key);
       var t=sc.map[n.r][n.c];
       if(t.type==='wall') return;
-      if(!unit.flying&&t.obs&&isTall(t.obs.type)) return;
-      if(G.units.find(function(u){return u.hp>0&&u.c===n.c&&u.r===n.r&&u.id!==unit.id;})) return;
+      if(!unit.flying&&t.obs){
+        // Tall: impassable for all ground units
+        if(isTall(t.obs.type)) return;
+        // Medium multi-hex: infantry cannot pass (must go around)
+        if(isMed(t.obs.type)&&t.obs.groupId&&unit.tags.indexOf('infantry')>=0) return;
+      }
+      var occupant=G.units.find(function(u){return u.hp>0&&u.c===n.c&&u.r===n.r&&u.id!==unit.id;});
+      if(occupant){
+        // Ground units: any occupied hex is blocked
+        // Flying units: CAN pass through occupied hexes but CANNOT land on them
+        if(!unit.flying) return;
+        // Flying: add to queue to continue pathfinding through, but NOT to moves (can't land)
+        queue.push({c:n.c,r:n.r,steps:cur.steps+1,occupied:true});
+        return;
+      }
       queue.push({c:n.c,r:n.r,steps:cur.steps+1});
     });
   }
@@ -1414,8 +1978,17 @@ function resolveWeapon(attacker, target, wg) {
   var wounds=norms+crits;
 
   // Save roll
+  // Cover save: table is single source of truth — no double-dip
   var baseSave=target.saves[coverInfo.type]||target.saves['none']||6;
-  if(!isDefVeh&&coverInfo.type==='medium'){baseSave=Math.max(2,baseSave-1);mods.push({txt:'Cob.Media +1 save',cls:'mod-g'});}
+  var coverSource=coverInfo.fromAdjacent?'adyacente':'propia';
+  if(!isDefVeh&&coverInfo.type!=='none'){
+    var cvLabel={high:'Alta',medium:'Media',light:'Ligera'}[coverInfo.type];
+    if(coverInfo.type==='light'){
+      mods.push({txt:'Cob.'+cvLabel+' ('+coverSource+'): -1d ataque',cls:'mod-g'});
+    } else {
+      mods.push({txt:'Cob.'+cvLabel+' ('+coverSource+'): salva '+baseSave+'+',cls:'mod-g'});
+    }
+  }
   var saveThr=Math.max(2,baseSave-Math.floor(w.ap/2));
   var saveRolls=wounds>0?rollDice(wounds):[];
   // Crits bypass saves
@@ -1648,9 +2221,11 @@ function showVictory(won) {
   document.getElementById('vic-result').className='vic-result '+(won?'vic-won':'vic-lost');
   var a=G.units.filter(function(u){return u.team==='ally'&&u.hp>0;}).length;
   var e=G.units.filter(function(u){return u.team==='enemy'&&u.hp>0;}).length;
+  var modeName=(MODE_DEFS[G.selectedMode]||{name:'Misión'}).name;
   document.getElementById('vic-stats').innerHTML=
-    'Ronda: '+G.round+'<br>'+(won?'¡Misión completada!':'Fuerzas aliadas eliminadas')+
-    '<br>Aliados en pie: '+a+' | Enemigos en pie: '+e;
+    'Modo: '+modeName+'<br>Ronda: '+G.round
+    +'<br>'+(won?'¡Misión completada!':'Fuerzas aliadas eliminadas')
+    +'<br>Aliados en pie: '+a+' | Enemigos en pie: '+e;
   showOv('vic-ov');
 }
 
@@ -2135,6 +2710,7 @@ function runAI() {
    SECTION 15: TURN SYSTEM
    ═══════════════════════════════════════════════════════════════ */
 function endTurn() {
+  if(MP.enabled){ mpEndTurn(); return; }
   if(G.turn!=='ally') return;
   SFX.turn_end();
   G.turn='enemy';
@@ -2339,9 +2915,16 @@ function setHint(msg){document.getElementById('g-hint').textContent=msg;}
 function updateGameUI(){
   // Team bar
   var tbar=document.getElementById('g-team-name');
-  tbar.textContent=G.turn==='ally'?'ALIADOS':'ENEMIGOS';
-  tbar.className='g-team-name '+(G.turn==='enemy'?'enemy':'');
-  document.getElementById('g-round-info').textContent='Ronda '+G.round+' · '+(G.turn==='ally'?'Tu turno':'Turno enemigo');
+  if(MP.enabled){
+    var isMyTurn=(G.turn===MP.myTeam);
+    tbar.textContent=isMyTurn?'TU TURNO':'OPONENTE';
+    tbar.className='g-team-name '+(isMyTurn?'':'enemy');
+    document.getElementById('g-round-info').textContent='Ronda '+G.round+' · P2P · '+(MP.myTeam==='ally'?'🟢 Verde':'🟤 Tan');
+  } else {
+    tbar.textContent=G.turn==='ally'?'ALIADOS':'ENEMIGOS';
+    tbar.className='g-team-name '+(G.turn==='enemy'?'enemy':'');
+    document.getElementById('g-round-info').textContent='Ronda '+G.round+' · '+(G.turn==='ally'?'Tu turno':'Turno enemigo');
+  }
 
   // Unit info box
   var u=G.selected;
@@ -2429,11 +3012,12 @@ function updateGameUI(){
   });
 
   // Objective
-  var obj=OBJECTIVES[G.currentObjective];
-  document.getElementById('obj-txt').textContent=obj?obj.label:'';
+  var md2=MODE_DEFS[G.selectedMode]||{name:'—',sub:''};
+  document.getElementById('obj-txt').textContent=md2.name+' — '+md2.sub;
 }
 
 function selectUnit(u){
+  if(!mpCanInteract(u)) return;
   SFX.select();
   G.selected=u; G.mode='selected';
   G.moveTiles=!u.moved?getMoves(u):[];
@@ -2518,29 +3102,67 @@ function updateDeployUI(){
    ═══════════════════════════════════════════════════════════════ */
 function initSceneSelect(){
   playMusicTrack('menu');
-  var grid=document.getElementById('scene-grid');
+  showScreen('scene');
+}
+
+function initModeSelect(isMp){
+  var grid=document.getElementById('mode-grid');
+  grid.innerHTML='';
+  Object.keys(MODE_DEFS).forEach(function(key){
+    var md=MODE_DEFS[key];
+    var card=document.createElement('div');
+    card.className='scene-card';
+    card.style.cssText='min-width:190px;max-width:220px;border-color:'+md.color+'22';
+    card.innerHTML=
+      '<div style="font-size:26px;margin-bottom:5px">'+md.icon+'</div>'
+      +'<div style="font-size:13px;color:var(--text2);letter-spacing:1px;font-weight:600">'+md.name+'</div>'
+      +'<div style="font-size:8px;color:'+md.color+';letter-spacing:2px;margin:3px 0">'+md.sub+'</div>'
+      +'<div style="font-size:9px;color:var(--text3);line-height:1.4">'+md.desc+'</div>';
+    card.addEventListener('click',function(){
+      SFX.click();
+      G.selectedMode=key;
+      initMapSelect(key);
+    });
+    grid.appendChild(card);
+  });
+  showScreen('mode');
+}
+
+function initMapSelect(modeKey){
+  var md=MODE_DEFS[modeKey];
+  document.getElementById('map-mode-badge').textContent=
+    'MODO: '+md.name.toUpperCase()+' · '+md.sub.toUpperCase();
+  document.getElementById('map-mode-badge').style.color=md.color;
+  var grid=document.getElementById('map-grid');
   grid.innerHTML='';
   Object.keys(ROOM_DEFS).forEach(function(key){
     var rd=ROOM_DEFS[key];
-    var obj=OBJECTIVES[rd.objective];
     var card=document.createElement('div'); card.className='scene-card';
-    card.innerHTML='<div class="scene-icon">'+rd.icon+'</div>'
+    card.innerHTML=
+      '<div class="scene-icon">'+rd.icon+'</div>'
       +'<div class="scene-name">'+rd.name+'</div>'
-      +'<div class="scene-desc">'+rd.desc+'</div>'
-      +'<div class="scene-obj">🎯 '+(obj?obj.label:'')+'</div>';
-    card.addEventListener('click',function(){ SFX.click(); startDeploy(key); });
+      +'<div class="scene-desc">'+rd.desc+'</div>';
+    card.addEventListener('click',function(){
+      SFX.click();
+      startDeploy(key);
+    });
     grid.appendChild(card);
   });
-  showScreen('scene');
+  showScreen('map');
 }
 
 function startDeploy(roomKey){
   playMusicTrack('deploy');
-  G.scenario=buildMap(roomKey);
+  var modeKey=G.selectedMode||'confrontacion';
+  G.scenario=buildMap(roomKey, modeKey);
   G.deployedUnits=[]; G.pointsLeft=STARTING_POINTS;
   selectedRosterKey=null;
-  G.currentObjective=ROOM_DEFS[roomKey].objective;
+  G.currentObjective=MODE_DEFS[modeKey].objective;
   G.objData={};
+  if(MP.enabled && MP.role==='host'){
+    mpHostScenarioChosen(roomKey, G.selectedMode||'confrontacion');
+    addLog('[MP] Escenario enviado al guest, esperando su despliegue…','sys');
+  }
   showScreen('deploy');
   if(!SPRITES_READY) loadSprites(function(){renderDeployCanvas();});
   else renderDeployCanvas();
@@ -2550,6 +3172,22 @@ function startDeploy(roomKey){
 
 function startBattle(){
   if(G.deployedUnits.length===0){alert('Despliega al menos una unidad!');return;}
+  if(MP.enabled){
+    if(MP.role==='host'){
+      // Host deployed — wait for guest deployment, then start
+      addLog('[MP] Esperando despliegue del guest…','sys');
+      mpStatus('Esperando al oponente…');
+      return;
+    } else {
+      // Guest deployed — send units to host then wait for battle_start
+      var guestUnits=G.deployedUnits;
+      mpSend('guest_deployed',{units:guestUnits});
+      addLog('[MP] Unidades enviadas. Esperando inicio de batalla…','sys');
+      mpStatus('Esperando que el host inicie la batalla…');
+      showScreen('mp');
+      return;
+    }
+  }
   showScreen('game');
   playMusicTrack('battle');
   var budget=Math.min(STARTING_POINTS,150+G.deployedUnits.reduce(function(s,u){return s+UNIT_DEFS[u.key].cost;},0)*0.8);
@@ -2562,7 +3200,8 @@ function startBattle(){
     G.objData.enemyStart=G.units.filter(function(u){return u.team==='enemy';}).length;
   if(G.currentObjective==='capture')
     G.objData.captureHex={c:Math.floor(G.scenario.cols/2),r:Math.floor(G.scenario.rows/2)};
-  document.getElementById('g-scene-name').textContent=G.scenario.name;
+  var mName=(MODE_DEFS[G.selectedMode]||{name:''}).name;
+  document.getElementById('g-scene-name').textContent=G.scenario.name+(mName?' · '+mName:'');
   document.getElementById('obj-txt').textContent=(OBJECTIVES[G.currentObjective]||{label:''}).label;
   updateFog();
   renderGame();
@@ -2571,6 +3210,356 @@ function startBattle(){
   addLog('¡BATALLA INICIADA! Ronda 1 — Turno ALIADOS','sys');
   updateGameUI();
 }
+
+
+/* ═══════════════════════════════════════════════════════════════
+   MULTIPLAYER — PeerJS P2P
+   Host = green (ally team)   Guest = tan (enemy team)
+   Turn sync: full G.units state sent at each turn end
+   ═══════════════════════════════════════════════════════════════ */
+
+var MP = {
+  enabled:  false,
+  role:     null,   // 'host' | 'guest'
+  peer:     null,
+  conn:     null,
+  myTeam:   null,   // 'ally' | 'enemy'
+  oppTeam:  null,
+  ready:    false,
+  peerReady:false,
+};
+
+// ── STATUS DISPLAY ────────────────────────────────────────────────────
+function mpStatus(msg, col) {
+  var el = document.getElementById('mp-status');
+  if(el){ el.textContent = msg; el.style.color = col||'var(--text3)'; }
+  addLog && G.scenario && addLog('[MP] '+msg,'sys');
+}
+
+// ── INIT LOBBY ────────────────────────────────────────────────────────
+function initMPLobby() {
+  playMusicTrack('menu');
+  MP.enabled=false; MP.role=null; MP.peer=null; MP.conn=null;
+  MP.myTeam=null; MP.ready=false; MP.peerReady=false;
+  document.getElementById('mp-host-id-wrap').style.display='none';
+  document.getElementById('mp-host-id').textContent='—';
+  document.getElementById('mp-join-input').value='';
+  mpStatus('Elige crear o unirte a una partida');
+  showScreen('mp');
+}
+
+// ── CREATE (HOST) ─────────────────────────────────────────────────────
+function mpCreate() {
+  mpStatus('Conectando al servidor de señalización…','var(--amber3)');
+  MP.role = 'host';
+  MP.myTeam = 'ally';
+  MP.oppTeam = 'enemy';
+
+  MP.peer = new Peer();
+
+  MP.peer.on('open', function(id) {
+    // Show full PeerJS ID — guest must use exactly this to connect
+    MP.peer._fullId = id;
+    document.getElementById('mp-host-id').textContent = id;
+    document.getElementById('mp-host-id-wrap').style.display = 'block';
+    mpStatus('Esperando oponente…','var(--amber3)');
+  });
+
+  MP.peer.on('connection', function(conn) {
+    MP.conn = conn;
+    mpSetupConn();
+    mpStatus('¡Oponente conectado! Configurando partida…','var(--green3)');
+    SFX.deploy();
+    // Host picks mode then map
+    setTimeout(function(){ initModeSelect(true); }, 600);
+  });
+
+  MP.peer.on('error', function(e) {
+    mpStatus('Error: '+e.type,'var(--red3)');
+  });
+}
+
+// ── JOIN (GUEST) ──────────────────────────────────────────────────────
+function mpJoin() {
+  var code = document.getElementById('mp-join-input').value.trim().toUpperCase();
+  if(!code || code.length < 4){ mpStatus('Ingresa un código válido','var(--red3)'); return; }
+  mpStatus('Conectando a '+code+'…','var(--amber3)');
+  MP.role = 'guest';
+  MP.myTeam = 'enemy';
+  MP.oppTeam = 'ally';
+
+  MP.peer = new Peer();
+  MP.peer.on('open', function() {
+    MP.conn = MP.peer.connect(code, {reliable:true});
+    mpSetupConn();
+    mpStatus('Conectando…','var(--amber3)');
+  });
+  MP.peer.on('error', function(e) {
+    mpStatus('No se pudo conectar. Verifica el código.','var(--red3)');
+  });
+}
+
+// ── CONNECTION HANDLERS ───────────────────────────────────────────────
+function mpSetupConn() {
+  var c = MP.conn;
+  c.on('open', function() {
+    MP.ready = true;
+    mpStatus('¡Conectado!','var(--green3)');
+    if(MP.role === 'guest') {
+      mpStatus('Esperando que el host elija escenario…','var(--amber3)');
+    }
+  });
+  c.on('data', function(data) {
+    mpHandleData(data);
+  });
+  c.on('close', function() {
+    mpStatus('Conexión perdida','var(--red3)');
+    if(G.scenario) addLog('⚠ Conexión con oponente perdida','sys');
+  });
+}
+
+// ── SEND ──────────────────────────────────────────────────────────────
+function mpSend(type, payload) {
+  if(!MP.conn || !MP.conn.open) return;
+  MP.conn.send({type:type, payload:payload});
+}
+
+// ── RECEIVE ───────────────────────────────────────────────────────────
+function mpHandleData(data) {
+  switch(data.type) {
+
+    // Host → Guest: scenario + mode chosen
+    case 'scenario_info':
+      G.selectedMode = data.payload.mode;
+      G.scenario = buildMap(data.payload.roomKey, data.payload.mode);
+      mpStatus('Escenario recibido. Despliega tus tropas.','var(--green3)');
+      G.deployedUnits=[]; G.pointsLeft=STARTING_POINTS;
+      selectedRosterKey=null;
+      G.currentObjective = MODE_DEFS[G.selectedMode].objective;
+      G.objData={};
+      showScreen('deploy');
+      document.getElementById('deploy-header-scene').textContent =
+        G.scenario.name+' · '+MODE_DEFS[G.selectedMode].name;
+      renderDeployCanvas(); renderRoster(); updateDeployUI();
+      addLog('[MP] Guest: despliega tus tropas TAN','sys');
+      break;
+
+    // Guest → Host: guest finished deploying
+    case 'guest_deployed':
+      var enemyUnits = data.payload.units.map(function(u){ return u; });
+      // Add guest's units to game
+      G.units = G.deployedUnits.concat(enemyUnits);
+      mpStartBattle();
+      break;
+
+    // Host → Guest: full game state at start
+    case 'battle_start':
+      G.units = data.payload.units;
+      G.round = data.payload.round;
+      G.turn  = data.payload.turn;
+      G.objData = data.payload.objData||{};
+      mpStartBattleGuest();
+      break;
+
+    // State sync at each turn end
+    case 'turn_state':
+      mpApplyState(data.payload);
+      break;
+
+    // Chat/ping
+    case 'ping':
+      mpSend('pong',{});
+      break;
+  }
+}
+
+// ── HOST: scenario selected → send to guest ───────────────────────────
+function mpHostScenarioChosen(roomKey, modeKey) {
+  mpSend('scenario_info', {roomKey:roomKey, mode:modeKey});
+}
+
+// ── BATTLE START — HOST SIDE ──────────────────────────────────────────
+function mpStartBattle() {
+  showScreen('game');
+  playMusicTrack('battle');
+  G.turn='ally'; G.round=1; G.selected=null; G.mode='select';
+  G.moveTiles=[]; G.attackTiles=[]; G.victoryShown=false;
+  G.visibleCells=new Set(); G.visibleEnemyIds=new Set();
+  if(G.currentObjective==='eliminate_75')
+    G.objData.enemyStart=G.units.filter(function(u){return u.team==='enemy';}).length;
+  if(G.currentObjective==='capture')
+    G.objData.captureHex={c:Math.floor(G.scenario.cols/2),r:Math.floor(G.scenario.rows/2)};
+  var mName=(MODE_DEFS[G.selectedMode]||{name:''}).name;
+  document.getElementById('g-scene-name').textContent=G.scenario.name+(mName?' · '+mName:'');
+  document.getElementById('obj-txt').textContent=(MODE_DEFS[G.selectedMode]||{name:'—',sub:''}).name;
+  updateFog(); mpUpdateFog();
+  renderGame(); fitMapToView(); renderGame();
+  addLog('=== BATALLA P2P INICIADA — TU TURNO (ALIADOS) ===','sys');
+  updateGameUI();
+  // Send full state to guest
+  mpSend('battle_start', {
+    units: G.units,
+    round: G.round,
+    turn:  G.turn,
+    objData: G.objData
+  });
+}
+
+// ── BATTLE START — GUEST SIDE ─────────────────────────────────────────
+function mpStartBattleGuest() {
+  showScreen('game');
+  playMusicTrack('battle');
+  G.selected=null; G.mode='select';
+  G.moveTiles=[]; G.attackTiles=[]; G.victoryShown=false;
+  G.visibleCells=new Set(); G.visibleEnemyIds=new Set();
+  var mName=(MODE_DEFS[G.selectedMode]||{name:''}).name;
+  document.getElementById('g-scene-name').textContent=G.scenario.name+(mName?' · '+mName:'');
+  document.getElementById('obj-txt').textContent=(MODE_DEFS[G.selectedMode]||{name:'—',sub:''}).name;
+  mpUpdateFog();
+  renderGame(); fitMapToView(); renderGame();
+  addLog('=== BATALLA P2P — ESPERANDO TURNO DEL HOST ===','sys');
+  updateGameUI();
+}
+
+// ── FOG OF WAR PER TEAM ───────────────────────────────────────────────
+function mpUpdateFog() {
+  if(!MP.enabled) return;
+  var sc=G.scenario;
+  G.visibleCells=new Set(); G.visibleEnemyIds=new Set();
+  // Compute from MY units' perspective
+  G.units.filter(function(u){return u.team===MP.myTeam&&u.hp>0;}).forEach(function(a){
+    var range=8;
+    for(var dr=-range;dr<=range;dr++) for(var dc=-range;dc<=range;dc++){
+      var tc=a.c+dc,tr=a.r+dr;
+      if(tc<0||tr<0||tc>=sc.cols||tr>=sc.rows) continue;
+      if(hexDist(a.c,a.r,tc,tr)>range) continue;
+      if(hasLOS(a.c,a.r,tc,tr,a)) G.visibleCells.add(tc+','+tr);
+    }
+    G.units.filter(function(u){return u.team===MP.oppTeam&&u.hp>0;}).forEach(function(e){
+      if(G.visibleCells.has(e.c+','+e.r)) G.visibleEnemyIds.add(e.id);
+    });
+  });
+}
+
+// ── SERIALIZE STATE ───────────────────────────────────────────────────
+function mpSerializeState() {
+  return {
+    units: G.units.map(function(u){
+      return {
+        id:u.id, key:u.key, team:u.team, c:u.c, r:u.r,
+        hp:u.hp, maxHp:u.maxHp, hpPerMan:u.hpPerMan,
+        menAlive:u.menAlive, menMax:u.menMax,
+        weaponGroups:u.weaponGroups.map(function(wg){return {count:wg.count,weapon:wg.weapon,label:wg.label};}),
+        moved:u.moved, acted:u.acted, ap:u.ap, maxAp:u.maxAp,
+        suppressed:u.suppressed, suppressMarkers:u.suppressMarkers,
+        overwatch:u.overwatch, cannonFired:u.cannonFired, missilesLeft:u.missilesLeft,
+        deployTimer:u.deployTimer, deploysLeft:u.deploysLeft,
+        grade:u.grade, aiRole:u.aiRole, missionMind:u.missionMind,
+      };
+    }),
+    round: G.round,
+    turn:  G.turn,
+    objData: G.objData,
+  };
+}
+
+// ── APPLY RECEIVED STATE ──────────────────────────────────────────────
+function mpApplyState(state) {
+  // Merge incoming units — preserve full unit objects, update changed fields
+  var myT=MP.myTeam;
+  state.units.forEach(function(su){
+    var local=G.units.find(function(u){return u.id===su.id;});
+    if(local){
+      // Update all synced fields
+      Object.keys(su).forEach(function(k){ local[k]=su[k]; });
+    } else {
+      // New unit (e.g. deployed reinforcement) — create full unit object
+      var newU=createUnit(su.key, su.team, su.c, su.r);
+      Object.keys(su).forEach(function(k){ newU[k]=su[k]; });
+      G.units.push(newU);
+    }
+  });
+  // Remove units that were eliminated (hp<=0 already in data, just mark)
+  G.round   = state.round;
+  G.turn    = state.turn;
+  G.objData = state.objData||G.objData;
+
+  // Determine whose turn it is now
+  mpUpdateFog();
+  if(G.turn === myT+'_turn' || G.turn === myT) {
+    // My turn!
+    addLog('=== RONDA '+G.round+' — TU TURNO ===','sys');
+    // Reset my units
+    G.units.filter(function(u){return u.team===MP.myTeam&&u.hp>0;}).forEach(function(u){
+      u.moved=false; u.acted=false; u.ap=u.maxAp; u.cannonFired=false;
+    });
+    mpHandleStartMyTurn();
+  } else {
+    addLog('=== RONDA '+G.round+' — TURNO DEL OPONENTE ===','sys');
+    G.selected=null; G.mode='select';
+    G.moveTiles=[]; G.attackTiles=[];
+  }
+  updateGameUI(); renderGame();
+  checkVictory();
+}
+
+function mpHandleStartMyTurn() {
+  // Medic aura for my team
+  G.units.filter(function(u){
+    return u.hp>0&&u.key==='medics'&&u.team===MP.myTeam;
+  }).forEach(function(medic){
+    var candidates=[];
+    hexNeighbors(medic.c,medic.r,G.scenario).forEach(function(n){
+      var adj=G.units.find(function(u){
+        return u.team===MP.myTeam&&u.hp>0&&u.hp<u.maxHp
+          &&u.tags&&u.tags.indexOf('infantry')>=0&&u.c===n.c&&u.r===n.r&&u.id!==medic.id;
+      });
+      if(adj) candidates.push(adj);
+    });
+    if(medic.hp<medic.maxHp) candidates.push(medic);
+    if(!candidates.length) return;
+    candidates.sort(function(a,b){return (a.hp/a.maxHp)-(b.hp/b.maxHp);});
+    var tgt=candidates[0];
+    var amount=Math.random()<0.25?2:1;
+    var before=tgt.hp;
+    tgt.hp=Math.min(tgt.maxHp,tgt.hp+amount);
+    if(tgt.tags&&tgt.tags.indexOf('infantry')>=0)
+      tgt.menAlive=Math.min(tgt.menMax,Math.ceil(tgt.hp/tgt.hpPerMan));
+    if(tgt.hp>before)
+      addLog('✚ AURA MÉDICO: '+medic.name+' cura '+(tgt.hp-before)+' HP a '+tgt.name+(amount===2?' ¡DOBLE!':''),'heal');
+  });
+  // Deploy timer tick
+  G.units.filter(function(u){return u.team===MP.myTeam&&u.deployTimer>0;}).forEach(function(u){
+    u.deployTimer=Math.max(0,u.deployTimer-1);
+    if(u.deployTimer===0&&u.deploysLeft>0)
+      addLog('🔔 '+u.name+' listo para desplegar','heal');
+  });
+}
+
+// ── END TURN IN MP ────────────────────────────────────────────────────
+function mpEndTurn() {
+  if(G.turn !== MP.myTeam) return; // not your turn
+  SFX.turn_end();
+  G.turn = MP.oppTeam; // flip turn
+  // Advance round after both played
+  if(MP.myTeam==='enemy') G.round++;
+  addLog('--- Fin de tu turno --- Enviando estado…','sys');
+  var state = mpSerializeState();
+  mpSend('turn_state', state);
+  G.selected=null; G.mode='select'; G.moveTiles=[]; G.attackTiles=[];
+  updateGameUI(); renderGame();
+}
+
+// ── UNIT INTERACTION IN MP ────────────────────────────────────────────
+// Can only interact with your own team on your turn
+function mpCanInteract(unit) {
+  if(!MP.enabled) return true; // single player: always
+  return unit.team === MP.myTeam && G.turn === MP.myTeam;
+}
+function mpIsMyTurn() {
+  return !MP.enabled || G.turn === MP.myTeam;
+}
+
 
 /* ═══════════════════════════════════════════════════════════════
    SECTION 18: EVENT HANDLERS
@@ -2682,6 +3671,7 @@ document.getElementById('deploy-canvas').addEventListener('touchend',function(e)
 
 // ── Main map tap logic ────────────────────────────────────────
 function handleMapTap(mc,mr){
+  if(!mpIsMyTurn()) return;
   var sc=G.scenario;
   if(!sc||mc<0||mr<0||mc>=sc.cols||mr>=sc.rows) return;
   var clickedUnit=G.units.find(function(u){return u.c===mc&&u.r===mr&&u.hp>0;});
@@ -2768,6 +3758,10 @@ document.getElementById('btn-overwatch').addEventListener('click',function(){if(
 document.getElementById('btn-deploy').addEventListener('click',function(){if(G.selected)setMode('deploy');});
 document.getElementById('btn-assault').addEventListener('click',function(){if(G.selected)setMode('assault');});
 document.getElementById('btn-end').addEventListener('click',endTurn);
+document.getElementById('btn-start-mp').addEventListener('click',function(){ SFX.click(); initMPLobby(); });
+document.getElementById('btn-mp-back').addEventListener('click',function(){ SFX.click(); initSceneSelect(); });
+document.getElementById('btn-mp-create').addEventListener('click',function(){ SFX.click(); MP.enabled=true; mpCreate(); });
+document.getElementById('btn-mp-join').addEventListener('click',function(){ SFX.click(); MP.enabled=true; mpJoin(); });
 
 // ── Weapon overlay ────────────────────────────────────────────
 document.getElementById('btn-wo-confirm').addEventListener('click',confirmWeaponSelect);
@@ -2782,6 +3776,7 @@ document.getElementById('btn-dice-ok').addEventListener('click',function(){
 // ── Victory overlay ───────────────────────────────────────────
 document.getElementById('btn-vic-menu').addEventListener('click',function(){
   hideOv('vic-ov'); initSceneSelect();
+  G.selectedMode=null;
 });
 
 // ── Zoom controls ─────────────────────────────────────────────
@@ -2798,7 +3793,9 @@ document.getElementById('btn-clear-deploy').addEventListener('click',function(){
 });
 
 // ── Scene select button ───────────────────────────────────────
-document.getElementById('btn-start-mission').addEventListener('click',initSceneSelect);
+document.getElementById('btn-start-mission').addEventListener('click',initModeSelect);
+document.getElementById('btn-back-to-menu').addEventListener('click',function(){ SFX.click(); initSceneSelect(); });
+document.getElementById('btn-back-to-mode').addEventListener('click',function(){ SFX.click(); initModeSelect(); });
 document.getElementById('btn-audio-toggle').addEventListener('click',toggleAudio);
 
 // ── Resize ───────────────────────────────────────────────────

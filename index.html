@@ -7,15 +7,60 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="plastic_warfare.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
 </head>
 <body>
 
-<!-- ═══ SCENE SELECT ═══ -->
-<div id="screen-scene" class="screen" style="position:relative">
+<!-- ═══ MAIN MENU ═══ -->
+<div id="screen-scene" class="screen" style="position:relative;flex-direction:column;align-items:center;justify-content:center;gap:20px">
   <button id="btn-audio-toggle" onclick="toggleAudio()" style="position:absolute;top:16px;right:16px;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);font-size:18px;width:38px;height:38px;cursor:pointer;border-radius:4px">🔊</button>
   <div class="scene-title">PLASTIC WARFARE</div>
   <div style="font-size:9px;color:var(--text3);letter-spacing:4px;margin-top:-12px">v6.0 · TABLERO HEXAGONAL · RFIC MECHANICS</div>
-  <div id="scene-grid" class="scene-grid"></div>
+  <button class="btn btn-go" id="btn-start-mission" style="font-size:14px;letter-spacing:4px;padding:12px 32px;margin-top:10px">CAMPAÑA SOLO</button>
+  <button class="btn" id="btn-start-mp" style="font-size:13px;letter-spacing:3px;padding:10px 28px">⚔ MULTIJUGADOR P2P</button>
+</div>
+
+<!-- ═══ MP LOBBY ═══ -->
+<div id="screen-mp" class="screen" style="flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:20px">
+  <div class="scene-title">MULTIJUGADOR</div>
+  <div style="font-size:9px;color:var(--text3);letter-spacing:3px">CONEXIÓN P2P DIRECTA VÍA PEERJS</div>
+
+  <div id="mp-create-section" style="display:flex;flex-direction:column;align-items:center;gap:8px;width:100%;max-width:360px">
+    <button class="btn btn-go" id="btn-mp-create" style="width:100%;padding:10px;letter-spacing:2px">CREAR PARTIDA (HOST)</button>
+    <div id="mp-host-id-wrap" style="display:none;text-align:center;width:100%">
+      <div style="font-size:9px;color:var(--text3);letter-spacing:2px;margin-bottom:4px">TU ID DE CONEXIÓN</div>
+      <div id="mp-host-id" style="font-size:11px;color:var(--amber3);font-family:monospace;background:var(--bg3);padding:8px 12px;border:1px solid var(--border2);word-break:break-all;user-select:all;cursor:text">—</div>
+      <button onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('mp-host-id').textContent).then(function(){mpStatus('¡Copiado!','var(--green3)');})" class="btn" style="margin-top:6px;font-size:9px;padding:4px 10px;letter-spacing:2px">📋 COPIAR ID</button>
+      <div style="font-size:8px;color:var(--text3);margin-top:4px">Copia y envía este ID a tu oponente (selecciona el texto o usa el botón)</div>
+    </div>
+  </div>
+
+  <div style="font-size:9px;color:var(--text3);letter-spacing:3px">— O —</div>
+
+  <div id="mp-join-section" style="display:flex;flex-direction:column;align-items:center;gap:8px;width:100%;max-width:360px">
+    <input id="mp-join-input" placeholder="Pega el ID de conexión aquí"
+      style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);font-family:monospace;font-size:11px;letter-spacing:1px;padding:8px 12px;text-align:center">
+    <button class="btn" id="btn-mp-join" style="width:100%;padding:9px;letter-spacing:2px">UNIRSE A PARTIDA (GUEST)</button>
+  </div>
+
+  <div id="mp-status" style="font-size:10px;color:var(--text3);letter-spacing:2px;min-height:20px;text-align:center">—</div>
+  <button class="btn btn-back" id="btn-mp-back">◀ MENÚ</button>
+</div>
+
+<!-- ═══ MODE SELECT ═══ -->
+<div id="screen-mode" class="screen" style="flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:20px">
+  <div class="scene-title">MODO DE JUEGO</div>
+  <div style="font-size:9px;color:var(--text3);letter-spacing:3px">SELECCIONA EL OBJETIVO DE LA MISIÓN</div>
+  <div id="mode-grid" style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;max-width:860px"></div>
+  <button class="btn btn-back" id="btn-back-to-menu">◀ MENÚ</button>
+</div>
+
+<!-- ═══ MAP SELECT ═══ -->
+<div id="screen-map" class="screen" style="flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:20px">
+  <div id="map-mode-badge" style="font-size:9px;letter-spacing:3px;color:var(--text3)">MODO: —</div>
+  <div class="scene-title">SELECCIONAR MAPA</div>
+  <div id="map-grid" style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;max-width:900px"></div>
+  <button class="btn btn-back" id="btn-back-to-mode">◀ MODO</button>
 </div>
 
 <!-- ═══ DEPLOY ═══ -->
