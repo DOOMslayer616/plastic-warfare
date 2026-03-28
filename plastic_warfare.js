@@ -3267,12 +3267,12 @@ function startBattle(){
       mpStatus('Esperando al oponente…');
       return;
     } else {
-      // Guest deployed — send units to host then wait for battle_start
+      // Guest deployed — send units to host, stay on deploy, show ready overlay
       var guestUnits=G.deployedUnits;
       mpSend('guest_deployed',{units:guestUnits});
-      addLog('[MP] Unidades enviadas. Esperando inicio de batalla…','sys');
-      mpStatus('Esperando que el host inicie la batalla…');
-      showScreen('mp');
+      addLog('[MP] 👑 Unidades enviadas al host.','sys');
+      // Show ready overlay — guest stays on deploy screen
+      mpShowReadyOverlay();
       return;
     }
   }
@@ -3501,8 +3501,9 @@ function mpBothReady() {
   if(ov) ov.style.display='none';
   if(MP.role==='host'){
     G.units=G.deployedUnits.concat(MP._pendingGuestUnits||[]);
-    mpStartBattle();
+    mpStartBattle();   // host starts battle, sends battle_start to guest
   }
+  // guest: waits — battle_start message will trigger mpStartBattleGuest
 }
 
 function mpHandleData(data) {
@@ -3538,7 +3539,9 @@ function mpHandleData(data) {
       break;
 
     case 'host_ready_check':
-      // Host asks if guest is ready
+      // Host signals both deployed — show guest the ready overlay
+      mpShowReadyOverlay();
+      // Host
       mpShowReadyOverlay('guest');
       break;
 
@@ -3551,10 +3554,20 @@ function mpHandleData(data) {
 
     // Host → Guest: full game state at start
     case 'battle_start':
-      G.units = data.payload.units;
-      G.round = data.payload.round;
-      G.turn  = data.payload.turn;
+      // Apply map sync if included (initial start or rejoin)
+      if(data.payload.mapSerialized && G.scenario){
+        mpApplySerializedMap(data.payload.mapSerialized, G.scenario);
+      }
+      // Rebuild full unit objects from serialized data
+      G.units = data.payload.units.map(function(su){
+        var u = createUnit(su.key, su.team, su.c, su.r);
+        Object.keys(su).forEach(function(k){ u[k]=su[k]; });
+        return u;
+      });
+      G.round   = data.payload.round;
+      G.turn    = data.payload.turn;
       G.objData = data.payload.objData||{};
+      G.victoryShown = false;
       mpStartBattleGuest();
       break;
 
@@ -3614,11 +3627,13 @@ function mpStartBattle() {
   addLog('=== BATALLA P2P INICIADA — TU TURNO (ALIADOS) ===','sys');
   updateGameUI();
   // Send full state to guest
+  // Include serialized map so guest has identical obstacles
   mpSend('battle_start', {
     units: G.units,
     round: G.round,
     turn:  G.turn,
-    objData: G.objData
+    objData: G.objData,
+    mapSerialized: mpSerializeMap(G.scenario)
   });
 }
 
@@ -3632,9 +3647,13 @@ function mpStartBattleGuest() {
   var mName=(MODE_DEFS[G.selectedMode]||{name:''}).name;
   document.getElementById('g-scene-name').textContent=G.scenario.name+(mName?' · '+mName:'');
   document.getElementById('obj-txt').textContent=(MODE_DEFS[G.selectedMode]||{name:'—',sub:''}).name;
+  // Init objective data if missing
+  if(G.currentObjective==='capture'&&!G.objData.captureHex)
+    G.objData.captureHex={c:Math.floor(G.scenario.cols/2),r:Math.floor(G.scenario.rows/2)};
   mpUpdateFog();
   renderGame(); fitMapToView(); renderGame();
-  addLog('=== BATALLA P2P — ESPERANDO TURNO DEL HOST ===','sys');
+  var myTurn=(G.turn===MP.myTeam);
+  addLog(myTurn?'=== TU TURNO ===':'=== TURNO DEL OPONENTE — ESPERANDO ===','sys');
   updateGameUI();
 }
 
@@ -3815,7 +3834,13 @@ function mpGuestRejoin() {
       mpSetupConn();
       mpStatus('¡Oponente reconectado!','var(--green3)');
       setTimeout(function(){
-        mpSend('battle_start',{units:G.units,round:G.round,turn:G.turn,objData:G.objData||{}});
+        mpSend('battle_start',{
+          units: G.units,
+          round: G.round,
+          turn:  G.turn,
+          objData: G.objData||{},
+          mapSerialized: mpSerializeMap(G.scenario)
+        });
       },500);
     });
   }
